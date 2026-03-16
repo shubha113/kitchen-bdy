@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:kitchen_bdy/screens/cook/cook_screen.dart';
 import 'package:kitchen_bdy/services/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -216,7 +217,10 @@ class HomeScreen extends StatelessWidget {
                         icon: Icons.restaurant_menu_outlined,
                         label: 'Cook\nNow',
                         color: AppColors.success,
-                        onTap: () => _goTab(context, 3),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const CookScreen()),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       _QuickAction(
