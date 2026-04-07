@@ -2,15 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-/// Handles all BLE operations for KitchenBDY weighing machines.
-///
-/// Firmware UUIDs:
-///   Service          : 4fafc201-1fb5-459e-8fcc-c5c9c331914b
-///   WiFi char        : beb5483e-36e1-4688-b7f5-ea07361b26a8  (write)
-///   Discovery char   : beb5483e-36e1-4688-b7f5-ea07361b26a9  (notify)
-///
-/// WiFi send format   : "ssid|password"
-/// Discovery notify   : "SENSORS:1,2,3" or "SENSORS:NONE"
 class BleService {
   static const String _serviceUuid = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
   static const String _wifiCharUuid = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';

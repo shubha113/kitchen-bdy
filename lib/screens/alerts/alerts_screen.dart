@@ -12,15 +12,16 @@ class AlertsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
+    final t = AppTheme.of(context);
 
     return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
+      backgroundColor: t.bgPrimary,
       appBar: AppBar(
-        backgroundColor: AppColors.bgPrimary,
+        backgroundColor: t.bgPrimary,
         elevation: 0,
         title: Row(
           children: [
-            Text('Alerts', style: AppTextStyles.headingLarge),
+            Text('Alerts', style: AppTextStyles.headingLargeOf(context)),
             const SizedBox(width: 8),
             if (prov.unreadAlertCount > 0)
               Container(
@@ -72,7 +73,8 @@ class _AlertCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, color, bg) = _alertStyle(alert.type);
+    final t = AppTheme.of(context);
+    final (icon, color, bg) = _alertStyle(alert.type, t);
 
     return GestureDetector(
       onTap: onTap,
@@ -80,12 +82,10 @@ class _AlertCard extends StatelessWidget {
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: alert.isRead ? AppColors.bgCard : bg,
+          color: alert.isRead ? t.bgCard : bg,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: alert.isRead
-                ? AppColors.borderSubtle
-                : color.withValues(alpha: 0.4),
+            color: alert.isRead ? t.borderSubtle : color.withValues(alpha: 0.4),
           ),
         ),
         child: Row(
@@ -109,7 +109,7 @@ class _AlertCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           alert.title,
-                          style: AppTextStyles.headingSmall.copyWith(
+                          style: AppTextStyles.headingSmallOf(context).copyWith(
                             fontWeight: alert.isRead
                                 ? FontWeight.w500
                                 : FontWeight.w700,
@@ -130,7 +130,7 @@ class _AlertCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     alert.message,
-                    style: AppTextStyles.bodySmall,
+                    style: AppTextStyles.bodySmallOf(context),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -157,7 +157,7 @@ class _AlertCard extends StatelessWidget {
                       const Spacer(),
                       Text(
                         _formatTime(alert.timestamp),
-                        style: AppTextStyles.labelSmall,
+                        style: AppTextStyles.labelSmallOf(context),
                       ),
                     ],
                   ),
@@ -170,22 +170,32 @@ class _AlertCard extends StatelessWidget {
     );
   }
 
-  (IconData, Color, Color) _alertStyle(AlertType type) {
+  (IconData, Color, Color) _alertStyle(AlertType type, AppTheme t) {
     switch (type) {
       case AlertType.lowStock:
+        return (Icons.inventory_2_outlined, AppColors.warning, t.warningDim);
+      case AlertType.outOfStock:
         return (
-          Icons.inventory_2_outlined,
-          AppColors.warning,
-          AppColors.warningDim,
+          Icons.remove_shopping_cart_outlined,
+          AppColors.error,
+          t.errorDim,
         );
       case AlertType.deviceOffline:
-        return (Icons.wifi_off, AppColors.error, AppColors.errorDim);
+        return (Icons.wifi_off, AppColors.error, t.errorDim);
+      case AlertType.deviceOnline:
+        return (Icons.wifi, AppColors.success, t.successDim);
       case AlertType.deviceLowBattery:
-        return (Icons.battery_alert, AppColors.error, AppColors.errorDim);
+        return (Icons.battery_alert, AppColors.error, t.errorDim);
+      case AlertType.sensorPlacement:
+        return (Icons.scale_outlined, AppColors.goldPrimary, t.goldDim);
       case AlertType.refillReminder:
-        return (Icons.refresh, AppColors.info, AppColors.infoDim);
+        return (Icons.alarm_outlined, AppColors.info, t.infoDim);
+      case AlertType.receiptPending:
+        return (Icons.receipt_long_outlined, AppColors.goldPrimary, t.goldDim);
+      case AlertType.receiptProcessed:
+        return (Icons.check_circle_outline, AppColors.success, t.successDim);
       case AlertType.info:
-        return (Icons.info_outline, AppColors.info, AppColors.infoDim);
+        return (Icons.info_outline, AppColors.info, t.infoDim);
     }
   }
 
@@ -199,33 +209,37 @@ class _AlertCard extends StatelessWidget {
 
 class _EmptyAlerts extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: AppColors.successDim,
-            shape: BoxShape.circle,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Matches recipes screen style: gold bg, rounded square, not circle
+          Container(
+            width: 90,
+            height: 90,
+            decoration: BoxDecoration(
+              color: t.goldDim,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: t.borderGold, width: 1.2),
+            ),
+            child: const Center(
+              child: Text('🔔', style: TextStyle(fontSize: 42)),
+            ),
           ),
-          child: const Icon(
-            Icons.notifications_none,
-            color: AppColors.success,
-            size: 40,
+          const SizedBox(height: 20),
+          Text('All Clear', style: AppTextStyles.displaySmallOf(context)),
+          const SizedBox(height: 8),
+          Text(
+            'No alerts at the moment.\nYour pantry is running smoothly.',
+            style: AppTextStyles.bodyMediumOf(
+              context,
+            ).copyWith(color: t.textSecondary),
+            textAlign: TextAlign.center,
           ),
-        ),
-        const SizedBox(height: 20),
-        Text('All Clear', style: AppTextStyles.displaySmall),
-        const SizedBox(height: 8),
-        Text(
-          'No alerts at the moment.\nYour pantry is running smoothly.',
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.textSecondary,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }

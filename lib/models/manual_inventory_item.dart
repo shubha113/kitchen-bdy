@@ -10,6 +10,7 @@ class ManualInventoryItem {
   final double packsRemaining;
 
   final double? threshold;
+  final String thresholdUnit;
   final double? pricePerUnit;
   final double? totalSpent;
 
@@ -19,6 +20,14 @@ class ManualInventoryItem {
   final DateTime? lastReconciled;
   final DateTime createdAt;
 
+  final bool isFilledByUser;
+
+  // REMINDER
+  final DateTime? reminderDate;
+  final bool reminderRecurring;
+  final String? reminderRepeatType;
+  final bool reminderFired;
+
   const ManualInventoryItem({
     required this.id,
     required this.itemName,
@@ -27,6 +36,7 @@ class ManualInventoryItem {
     this.packSizeGrams,
     required this.totalPurchased,
     required this.packsRemaining,
+    this.thresholdUnit = 'kg',
     this.threshold,
     this.pricePerUnit,
     this.totalSpent,
@@ -34,6 +44,11 @@ class ManualInventoryItem {
     required this.hasSensor,
     this.lastReconciled,
     required this.createdAt,
+    this.isFilledByUser = false,
+    this.reminderDate,
+    this.reminderRecurring = false,
+    this.reminderRepeatType,
+    this.reminderFired = false,
   });
 
   factory ManualInventoryItem.fromJson(Map<String, dynamic> j) {
@@ -45,6 +60,7 @@ class ManualInventoryItem {
       packSizeGrams: (j['packSizeGrams'] as num?)?.toDouble(),
       totalPurchased: (j['totalPurchased'] as num?)?.toDouble() ?? 0,
       packsRemaining: (j['packsRemaining'] as num?)?.toDouble() ?? 0,
+      thresholdUnit: (j['thresholdUnit'] as String?) ?? 'kg',
       threshold: (j['threshold'] as num?)?.toDouble(),
       pricePerUnit: (j['pricePerUnit'] as num?)?.toDouble(),
       totalSpent: (j['totalSpent'] as num?)?.toDouble(),
@@ -54,30 +70,84 @@ class ManualInventoryItem {
           ? DateTime.tryParse(j['lastReconciled'])
           : null,
       createdAt: DateTime.parse(j['createdAt']),
+      isFilledByUser: (j['isFilledByUser'] as bool?) ?? false,
+      reminderDate: j['reminderDate'] != null
+          ? DateTime.tryParse(j['reminderDate'] as String)
+          : null,
+      reminderRecurring: (j['reminderRecurring'] as bool?) ?? false,
+      reminderRepeatType: (j['reminderRepeatType'] as String?),
+      reminderFired: (j['reminderFired'] as bool?) ?? false,
     );
   }
 
-  /// Days since user confirmed stock
+  // Computed
+
   int? get daysSinceReconciled {
     if (lastReconciled == null) return null;
     return DateTime.now().difference(lastReconciled!).inDays;
   }
 
-  /// True if user hasn't confirmed stock in >7 days
   bool get needsReconciliation =>
       lastReconciled == null ||
-          DateTime.now().difference(lastReconciled!).inDays > 7;
+      DateTime.now().difference(lastReconciled!).inDays > 7;
 
-  /// Out of stock
   bool get isOutOfStock => packsRemaining <= 0;
 
-  /// Low stock based on threshold
-  bool get isLowStock {
-    if (threshold == null) return false;
-    return packsRemaining <= threshold!;
+  double get thresholdInItemUnit {
+    if (threshold == null) return 0;
+    final tUnit = thresholdUnit;
+    final iUnit = unit;
+    if (tUnit == iUnit) return threshold!;
+    if (tUnit == 'g' && iUnit == 'kg') return threshold! / 1000;
+    if (tUnit == 'kg' && iUnit == 'g') return threshold! * 1000;
+    if (tUnit == 'ml' && iUnit == 'L') return threshold! / 1000;
+    if (tUnit == 'L' && iUnit == 'ml') return threshold! * 1000;
+    return threshold!;
   }
 
-  /// Remaining stock formatted
+  bool get isLowStock {
+    if (threshold == null) return false;
+    if (isFilledByUser) return false;
+    return packsRemaining <= thresholdInItemUnit;
+  }
+
+  /// True when a reminder is set AND it hasn't fired yet.
+  bool get hasActiveReminder => reminderDate != null && !reminderFired;
+
+  /// True when reminderDate is in the past and not yet fired — i.e. due now.
+  bool get isReminderDue =>
+      reminderDate != null &&
+      !reminderFired &&
+      reminderDate!.isBefore(DateTime.now());
+
+  /// Human-readable label for the reminder date, e.g. "Remind: Mar 28"
+  String? get reminderLabel {
+    if (reminderDate == null) return null;
+    final d = reminderDate!;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final dateStr = '${months[d.month - 1]} ${d.day}';
+    if (reminderRecurring && reminderRepeatType == 'weekly')
+      return 'Every week';
+    if (reminderRecurring && reminderRepeatType == 'monthly')
+      return 'Every ${d.day}th';
+    return 'Remind: $dateStr';
+  }
+
+  // Formatting
+
   String get remainingFormatted {
     if (packsRemaining <= 0) return 'Out of stock';
     final n = packsRemaining % 1 == 0
@@ -86,23 +156,22 @@ class ManualInventoryItem {
     return '$n $unit';
   }
 
-  /// Price label (₹120/kg)
   String? get priceLabel {
     if (pricePerUnit == null) return null;
     return '₹${pricePerUnit!.toStringAsFixed(0)}/$unit';
   }
 
-  /// Total spent label
   String? get totalSpentLabel {
     if (totalSpent == null) return null;
     return '₹${totalSpent!.toStringAsFixed(0)} spent';
   }
 
-  /// Threshold label
   String? get thresholdLabel {
     if (threshold == null) return null;
-    return 'Alert <$threshold $unit';
+    return 'Alert <$threshold $thresholdUnit';
   }
+
+  // CopyWith
 
   ManualInventoryItem copyWith({
     double? packsRemaining,
@@ -110,6 +179,13 @@ class ManualInventoryItem {
     String? linkedSensorId,
     bool? hasSensor,
     DateTime? lastReconciled,
+    bool? isFilledByUser,
+    String? thresholdUnit,
+    DateTime? reminderDate,
+    bool? reminderRecurring,
+    String? reminderRepeatType,
+    bool? reminderFired,
+    bool clearReminder = false,
   }) {
     return ManualInventoryItem(
       id: id,
@@ -120,12 +196,18 @@ class ManualInventoryItem {
       totalPurchased: totalPurchased,
       packsRemaining: packsRemaining ?? this.packsRemaining,
       threshold: threshold ?? this.threshold,
+      thresholdUnit: thresholdUnit ?? this.thresholdUnit,
       pricePerUnit: pricePerUnit,
       totalSpent: totalSpent,
       linkedSensorId: linkedSensorId ?? this.linkedSensorId,
       hasSensor: hasSensor ?? this.hasSensor,
       lastReconciled: lastReconciled ?? this.lastReconciled,
       createdAt: createdAt,
+      isFilledByUser: isFilledByUser ?? this.isFilledByUser,
+      reminderDate: clearReminder ? null : (reminderDate ?? this.reminderDate),
+      reminderRecurring: reminderRecurring ?? this.reminderRecurring,
+      reminderRepeatType: reminderRepeatType ?? this.reminderRepeatType,
+      reminderFired: reminderFired ?? this.reminderFired,
     );
   }
 }

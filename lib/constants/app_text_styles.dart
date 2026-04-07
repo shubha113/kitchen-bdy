@@ -5,7 +5,8 @@ import 'app_colors.dart';
 class AppTextStyles {
   AppTextStyles._();
 
-  // Display — Playfair Display (serif, luxe)
+  // Static (dark-default, used where no context available)
+
   static TextStyle displayLarge = GoogleFonts.playfairDisplay(
     fontSize: 36,
     fontWeight: FontWeight.w700,
@@ -23,8 +24,6 @@ class AppTextStyles {
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
   );
-
-  // Headings — DM Sans
   static TextStyle headingLarge = GoogleFonts.dmSans(
     fontSize: 20,
     fontWeight: FontWeight.w700,
@@ -41,8 +40,6 @@ class AppTextStyles {
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
   );
-
-  // Body
   static TextStyle bodyLarge = GoogleFonts.dmSans(
     fontSize: 16,
     fontWeight: FontWeight.w400,
@@ -58,8 +55,6 @@ class AppTextStyles {
     fontWeight: FontWeight.w400,
     color: AppColors.textSecondary,
   );
-
-  // Labels & Captions
   static TextStyle labelLarge = GoogleFonts.dmSans(
     fontSize: 13,
     fontWeight: FontWeight.w600,
@@ -78,8 +73,6 @@ class AppTextStyles {
     color: AppColors.textMuted,
     letterSpacing: 1.2,
   );
-
-  // Gold Variants
   static TextStyle goldLabel = GoogleFonts.dmSans(
     fontSize: 11,
     fontWeight: FontWeight.w600,
@@ -91,8 +84,6 @@ class AppTextStyles {
     fontWeight: FontWeight.w600,
     color: AppColors.goldPrimary,
   );
-
-  // Weight / Number Display
   static TextStyle weightDisplay = GoogleFonts.dmMono(
     fontSize: 32,
     fontWeight: FontWeight.w600,
@@ -109,4 +100,23 @@ class AppTextStyles {
     fontWeight: FontWeight.w400,
     color: AppColors.textSecondary,
   );
+
+  // Context-aware (picks light or dark text color automatically)
+
+  static TextStyle headingLargeOf(BuildContext context) =>
+      headingLarge.copyWith(color: AppTheme.of(context).textPrimary);
+  static TextStyle headingMediumOf(BuildContext context) =>
+      headingMedium.copyWith(color: AppTheme.of(context).textPrimary);
+  static TextStyle headingSmallOf(BuildContext context) =>
+      headingSmall.copyWith(color: AppTheme.of(context).textPrimary);
+  static TextStyle bodyMediumOf(BuildContext context) =>
+      bodyMedium.copyWith(color: AppTheme.of(context).textPrimary);
+  static TextStyle bodySmallOf(BuildContext context) =>
+      bodySmall.copyWith(color: AppTheme.of(context).textSecondary);
+  static TextStyle labelSmallOf(BuildContext context) =>
+      labelSmall.copyWith(color: AppTheme.of(context).textMuted);
+  static TextStyle displaySmallOf(BuildContext context) =>
+      displaySmall.copyWith(color: AppTheme.of(context).textPrimary);
+  static TextStyle weightSmallOf(BuildContext context) =>
+      weightSmall.copyWith(color: AppTheme.of(context).textPrimary);
 }

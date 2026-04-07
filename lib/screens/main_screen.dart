@@ -1,3 +1,4 @@
+import 'package:app/screens/waitlist/waitlist_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
@@ -21,7 +22,7 @@ class _MainScreenState extends State<MainScreen> {
 
   final _screens = const [
     HomeScreen(),
-    DevicesScreen(),
+    WaitlistScreen(),
     InventoryScreen(),
     RecipesScreen(),
     AlertsScreen(),
@@ -30,16 +31,15 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final unread = context.watch<AppProvider>().unreadAlertCount;
+    final t = AppTheme.of(context);
 
     return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
+      backgroundColor: t.bgPrimary,
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.bgSecondary,
-          border: Border(
-            top: BorderSide(color: AppColors.borderSubtle, width: 0.5),
-          ),
+        decoration: BoxDecoration(
+          color: t.bgSecondary,
+          border: Border(top: BorderSide(color: t.borderSubtle, width: 0.5)),
         ),
         child: SafeArea(
           child: Padding(
@@ -117,6 +117,7 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActive = index == current;
+    final t = AppTheme.of(context);
     return GestureDetector(
       onTap: () => onTap(index),
       behavior: HitTestBehavior.opaque,
@@ -127,14 +128,14 @@ class _NavItem extends StatelessWidget {
           children: [
             Icon(
               isActive ? activeIcon : icon,
-              color: isActive ? AppColors.goldPrimary : AppColors.textMuted,
+              color: isActive ? AppColors.goldPrimary : t.textMuted,
               size: 22,
             ),
             const SizedBox(height: 4),
             Text(
               label,
               style: AppTextStyles.labelSmall.copyWith(
-                color: isActive ? AppColors.goldPrimary : AppColors.textMuted,
+                color: isActive ? AppColors.goldPrimary : t.textMuted,
                 letterSpacing: 0.5,
               ),
             ),
@@ -164,6 +165,7 @@ class _NavItemBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActive = index == current;
+    final t = AppTheme.of(context);
     return GestureDetector(
       onTap: () => onTap(index),
       behavior: HitTestBehavior.opaque,
@@ -177,7 +179,7 @@ class _NavItemBadge extends StatelessWidget {
               children: [
                 Icon(
                   isActive ? activeIcon : icon,
-                  color: isActive ? AppColors.goldPrimary : AppColors.textMuted,
+                  color: isActive ? AppColors.goldPrimary : t.textMuted,
                   size: 22,
                 ),
                 if (badgeCount > 0)
@@ -206,7 +208,7 @@ class _NavItemBadge extends StatelessWidget {
             Text(
               label,
               style: AppTextStyles.labelSmall.copyWith(
-                color: isActive ? AppColors.goldPrimary : AppColors.textMuted,
+                color: isActive ? AppColors.goldPrimary : t.textMuted,
                 letterSpacing: 0.5,
               ),
             ),

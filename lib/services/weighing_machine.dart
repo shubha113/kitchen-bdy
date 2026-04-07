@@ -1,8 +1,8 @@
 import 'dart:convert';
+import 'package:app/services/auth_service.dart';
+import 'package:app/utils/constant.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:kitchen_bdy/services/auth_service.dart';
-import 'package:kitchen_bdy/utils/constant.dart';
 
 // Model
 class WeighingMachineModel {
@@ -19,6 +19,10 @@ class WeighingMachineModel {
   final double capacity;
   final bool isActive;
   final DateTime? lastSeen;
+  final double tareWeight;
+  final int? linkedInventoryId;
+  final String? linkedInventoryName;
+  final double? lastStableWeight;
 
   const WeighingMachineModel({
     required this.id,
@@ -34,7 +38,14 @@ class WeighingMachineModel {
     this.capacity = 5000.0,
     required this.isActive,
     this.lastSeen,
+    this.tareWeight = 0,
+    this.linkedInventoryId,
+    this.linkedInventoryName,
+    this.lastStableWeight,
   });
+
+  double get netWeight =>
+      (currentWeight - tareWeight).clamp(0.0, double.infinity);
 
   factory WeighingMachineModel.fromJson(Map<String, dynamic> j) =>
       WeighingMachineModel(
@@ -53,22 +64,20 @@ class WeighingMachineModel {
         lastSeen: j['lastSeen'] != null
             ? DateTime.tryParse(j['lastSeen'] as String)
             : null,
+        tareWeight: (j['tareWeight'] as num?)?.toDouble() ?? 0.0,
+        linkedInventoryId: j['linkedInventoryId'] as int?,
+        linkedInventoryName: j['linkedInventoryName'] as String?,
+        lastStableWeight: (j['lastStableWeight'] as num?)?.toDouble(),
       );
 }
 
 // Service
 class WeighingMachineService {
-  // GET all machines for logged-in user
   static Future<List<WeighingMachineModel>> getUserMachines() async {
     try {
       final headers = await ApiService.authHeaders();
-
-      final tokenPreview = headers['Authorization'] ?? 'NULL';
       debugPrint(
         '[WM] GET ${AppConstants.baseUrl}${AppConstants.getUserMachines}',
-      );
-      debugPrint(
-        '[WM] Auth: ${tokenPreview.length > 40 ? tokenPreview.substring(0, 40) + "..." : tokenPreview}',
       );
 
       final res = await http
@@ -83,40 +92,28 @@ class WeighingMachineService {
 
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
-
         List<dynamic> list;
         if (decoded is List) {
           list = decoded;
         } else if (decoded is Map) {
           list =
-              (decoded['machines'] ??
-                      decoded['data'] ??
-                      decoded['weighingMachines'] ??
-                      decoded['items'] ??
-                      [])
-                  as List<dynamic>;
+              (decoded['machines'] ?? decoded['data'] ?? []) as List<dynamic>;
         } else {
           list = [];
         }
-
-        debugPrint('[WM] parsed ${list.length} machine(s)');
         return list
             .map(
               (e) => WeighingMachineModel.fromJson(e as Map<String, dynamic>),
             )
             .toList();
       }
-
-      debugPrint('[WM] non-200 response — no machines returned');
       return [];
     } catch (e, st) {
-      debugPrint('[WM] ERROR in getUserMachines: $e');
-      debugPrint('[WM] STACK: $st');
+      debugPrint('[WM] ERROR: $e\n$st');
       return [];
     }
   }
 
-  // GET machines by ESP32 id
   static Future<List<WeighingMachineModel>> getMachinesByEsp(
     String espId,
   ) async {
@@ -130,17 +127,13 @@ class WeighingMachineService {
             headers: headers,
           )
           .timeout(const Duration(seconds: 10));
-
-      debugPrint(
-        '[WM] getMachinesByEsp($espId) → ${res.statusCode}: ${res.body}',
-      );
-
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
-        List<dynamic> list = decoded is List
-            ? decoded
-            : ((decoded as Map)['machines'] ?? decoded['data'] ?? [])
-                  as List<dynamic>;
+        final list =
+            (decoded is Map
+                    ? (decoded['machines'] ?? decoded['data'] ?? [])
+                    : decoded)
+                as List<dynamic>;
         return list
             .map(
               (e) => WeighingMachineModel.fromJson(e as Map<String, dynamic>),
@@ -154,13 +147,11 @@ class WeighingMachineService {
     }
   }
 
-  // POST bulk — register all discovered sensors in one call
-  static Future<bool> registerMany(List<Map<String, dynamic>> sensors) async {
+  static Future<Map<String, dynamic>> registerManyWithError(
+    List<Map<String, dynamic>> sensors,
+  ) async {
     try {
       final headers = await ApiService.authHeaders();
-      debugPrint(
-        '[WM] registerMany: ${sensors.length} sensor(s) → ${jsonEncode({'sensors': sensors})}',
-      );
       final res = await http
           .post(
             Uri.parse(
@@ -170,62 +161,30 @@ class WeighingMachineService {
             body: jsonEncode({'sensors': sensors}),
           )
           .timeout(const Duration(seconds: 15));
-
       debugPrint('[WM] registerMany → ${res.statusCode}: ${res.body}');
-      return res.statusCode == 200 || res.statusCode == 201;
-    } catch (e) {
-      debugPrint('[WM] registerMany error: $e');
-      return false;
-    }
-  }
-
-  // POST single
-  static Future<WeighingMachineModel?> registerOne({
-    required String espId,
-    required int slot,
-    required String name,
-    required String location,
-    required String category,
-    double threshold = 200.0,
-    double capacity = 5000.0,
-    String unit = 'g',
-  }) async {
-    try {
-      final headers = await ApiService.authHeaders();
-      final res = await http
-          .post(
-            Uri.parse('${AppConstants.baseUrl}${AppConstants.registerMachine}'),
-            headers: headers,
-            body: jsonEncode({
-              'espId': espId,
-              'slot': slot,
-              'name': name,
-              'location': location,
-              'category': category,
-              'threshold': threshold,
-              'capacity': capacity,
-              'unit': unit,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      debugPrint('[WM] registerOne → ${res.statusCode}: ${res.body}');
-
-      if (res.statusCode == 200 || res.statusCode == 201) {
+      if (res.statusCode == 200 || res.statusCode == 201) return {'ok': true};
+      try {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final machineData = body['machine'] ?? body['data'] ?? body;
-        return WeighingMachineModel.fromJson(
-          machineData as Map<String, dynamic>,
-        );
+        return {
+          'ok': false,
+          'message': body['message'] ?? 'Registration failed',
+        };
+      } catch (_) {
+        return {
+          'ok': false,
+          'message': 'Registration failed (${res.statusCode})',
+        };
       }
-      return null;
     } catch (e) {
-      debugPrint('[WM] registerOne error: $e');
-      return null;
+      return {'ok': false, 'message': 'Network error: $e'};
     }
   }
 
-  // PATCH
+  static Future<bool> registerMany(List<Map<String, dynamic>> sensors) async {
+    final result = await registerManyWithError(sensors);
+    return result['ok'] == true;
+  }
+
   static Future<bool> updateMachine(
     String sensorId, {
     String? name,
@@ -254,8 +213,6 @@ class WeighingMachineService {
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 10));
-
-      debugPrint('[WM] updateMachine($sensorId) → ${res.statusCode}');
       return res.statusCode == 200;
     } catch (e) {
       debugPrint('[WM] updateMachine error: $e');
@@ -263,7 +220,51 @@ class WeighingMachineService {
     }
   }
 
-  // DELETE
+  // Set tare weight
+  // Call while empty container is on scale — pass current sensor weight.
+  static Future<bool> setTare(String sensorId, double tareWeight) async {
+    try {
+      final headers = await ApiService.authHeaders();
+      final res = await http
+          .patch(
+            Uri.parse(
+              '${AppConstants.baseUrl}${AppConstants.setTare(sensorId)}',
+            ),
+            headers: headers,
+            body: jsonEncode({'tareWeight': tareWeight}),
+          )
+          .timeout(const Duration(seconds: 10));
+      debugPrint('[WM] setTare($sensorId, $tareWeight) → ${res.statusCode}');
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('[WM] setTare error: $e');
+      return false;
+    }
+  }
+
+  // Link / unlink inventory item
+  static Future<bool> linkInventory(String sensorId, int? inventoryId) async {
+    try {
+      final headers = await ApiService.authHeaders();
+      final res = await http
+          .patch(
+            Uri.parse(
+              '${AppConstants.baseUrl}${AppConstants.linkInventory(sensorId)}',
+            ),
+            headers: headers,
+            body: jsonEncode({'inventoryId': inventoryId}),
+          )
+          .timeout(const Duration(seconds: 10));
+      debugPrint(
+        '[WM] linkInventory($sensorId, $inventoryId) → ${res.statusCode}',
+      );
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('[WM] linkInventory error: $e');
+      return false;
+    }
+  }
+
   static Future<bool> removeMachine(String sensorId) async {
     try {
       final headers = await ApiService.authHeaders();
@@ -275,8 +276,6 @@ class WeighingMachineService {
             headers: headers,
           )
           .timeout(const Duration(seconds: 10));
-
-      debugPrint('[WM] removeMachine($sensorId) → ${res.statusCode}');
       return res.statusCode == 200;
     } catch (e) {
       debugPrint('[WM] removeMachine error: $e');

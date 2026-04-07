@@ -9,7 +9,6 @@ import '../../services/auth_service.dart';
 import '../../services/manual_inventory.dart';
 import '../../utils/constant.dart';
 
-// Cuisine options
 const _cuisines = [
   'North Indian',
   'South Indian',
@@ -34,30 +33,27 @@ class CookScreen extends StatefulWidget {
 }
 
 class _CookScreenState extends State<CookScreen> {
-  // Form state
   String _cuisine = 'North Indian';
-  int _servings = 2;
+  int _servings = 1;
   bool _healthy = false;
-
-  // UI state
   bool _loading = false;
   List<Map<String, dynamic>> _recipes = [];
   bool _hasSearched = false;
   String? _error;
+  bool _formCollapsed = false;
 
-  // Submit
   Future<void> _findRecipes() async {
     setState(() {
       _loading = true;
       _error = null;
       _recipes = [];
+      _formCollapsed = false;
     });
 
     try {
       final prov = context.read<AppProvider>();
-
-      // Collect inventory from sensor devices
       final inventory = <Map<String, dynamic>>[];
+
       for (final d in prov.devices) {
         if (d.currentWeight > 0) {
           inventory.add({
@@ -68,7 +64,6 @@ class _CookScreenState extends State<CookScreen> {
         }
       }
 
-      // Collect manual inventory items
       final manualItems = await ManualInventoryService.getUserInventory();
       for (final m in manualItems) {
         if (m.packsRemaining > 0) {
@@ -89,7 +84,6 @@ class _CookScreenState extends State<CookScreen> {
         return;
       }
 
-      // Call backend
       final token = await ApiService.getToken();
       if (token == null) {
         setState(() {
@@ -121,6 +115,7 @@ class _CookScreenState extends State<CookScreen> {
         setState(() {
           _recipes = recipes;
           _hasSearched = true;
+          _formCollapsed = recipes.isNotEmpty;
         });
       } else {
         setState(() {
@@ -140,55 +135,117 @@ class _CookScreenState extends State<CookScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
+      backgroundColor: t.bgPrimary,
       appBar: AppBar(
-        backgroundColor: AppColors.bgPrimary,
+        backgroundColor: t.bgPrimary,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios,
-            color: AppColors.textSecondary,
-            size: 18,
-          ),
+          icon: Icon(Icons.arrow_back_ios, color: t.textSecondary, size: 18),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text('What Can I Cook?', style: AppTextStyles.headingLarge),
+        title: Text(
+          'What Can I Cook?',
+          style: AppTextStyles.headingLargeOf(context),
+        ),
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // Input form
-            _buildForm(),
-
-            // Results
-            Expanded(child: _buildResults()),
+            _buildForm(context, t),
+            Expanded(child: _buildResults(context, t)),
           ],
         ),
       ),
     );
   }
 
-  // Form
-  Widget _buildForm() {
+  Widget _buildForm(BuildContext context, AppTheme t) {
+    if (_formCollapsed) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: t.bgCard,
+          border: Border(bottom: BorderSide(color: t.borderSubtle)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  _SummaryChip(
+                    label: _cuisine,
+                    color: AppColors.goldPrimary,
+                    t: t,
+                  ),
+                  _SummaryChip(
+                    label: '$_servings people',
+                    color: t.textSecondary,
+                    t: t,
+                  ),
+                  if (_healthy)
+                    _SummaryChip(
+                      label: '🌿 Healthy',
+                      color: AppColors.success,
+                      t: t,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () => setState(() => _formCollapsed = false),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: t.goldDim,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: AppColors.goldPrimary.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Text(
+                  'Change',
+                  style: TextStyle(
+                    color: AppColors.goldPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        border: Border(bottom: BorderSide(color: AppColors.borderSubtle)),
+        color: t.bgCard,
+        border: Border(bottom: BorderSide(color: t.borderSubtle)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Cuisine
           Text('CUISINE', style: AppTextStyles.goldLabel),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             value: _cuisine,
-            dropdownColor: const Color(0xFF252525),
+            dropdownColor: t.bgCardElevated,
             isExpanded: true,
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-            decoration: _inputDec('Select cuisine', Icons.restaurant_outlined),
+            style: TextStyle(color: t.textPrimary, fontSize: 14),
+            decoration: _inputDec(
+              context,
+              t,
+              'Select cuisine',
+              Icons.restaurant_outlined,
+            ),
             items: _cuisines
                 .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                 .toList(),
@@ -203,68 +260,55 @@ class _CookScreenState extends State<CookScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('SERVINGS', style: AppTextStyles.goldLabel),
+                    Text('PEOPLE', style: AppTextStyles.goldLabel),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
+                      padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF111111),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFF2A2A2A)),
+                        color: t.bgSurface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: t.borderSubtle),
                       ),
                       child: Row(
                         children: [
-                          IconButton(
-                            icon: const Icon(
-                              Icons.remove,
-                              size: 16,
-                              color: AppColors.textSecondary,
-                            ),
-                            onPressed: _loading || _servings <= 1
+                          GestureDetector(
+                            onTap: _loading || _servings <= 1
                                 ? null
                                 : () => setState(() => _servings--),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
+                            child: SizedBox(
+                              height: 39,
+                              width: 39,
+                              child: Icon(
+                                Icons.remove,
+                                size: 16,
+                                color: t.textSecondary,
+                              ),
                             ),
                           ),
                           Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  '$_servings',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                            child: Center(
+                              child: Text(
+                                '$_servings',
+                                style: TextStyle(
+                                  color: t.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                                Text(
-                                  'people',
-                                  style: AppTextStyles.bodySmall.copyWith(
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.add,
-                              size: 16,
-                              color: AppColors.goldPrimary,
-                            ),
-                            onPressed: _loading || _servings >= 20
+                          GestureDetector(
+                            onTap: _loading || _servings >= 20
                                 ? null
                                 : () => setState(() => _servings++),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
+                            child: SizedBox(
+                              height: 39,
+                              width: 39,
+                              child: Icon(
+                                Icons.add,
+                                size: 16,
+                                color: AppColors.goldPrimary,
+                              ),
                             ),
                           ),
                         ],
@@ -277,54 +321,123 @@ class _CookScreenState extends State<CookScreen> {
               const SizedBox(width: 16),
 
               // Healthy toggle
+              // Replace the entire PREFERENCE column with this:
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('PREFERENCE', style: AppTextStyles.goldLabel),
                     const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: _loading
-                          ? null
-                          : () => setState(() => _healthy = !_healthy),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _healthy
-                              ? AppColors.success.withValues(alpha: 0.1)
-                              : const Color(0xFF111111),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _healthy
-                                ? AppColors.success.withValues(alpha: 0.4)
-                                : const Color(0xFF2A2A2A),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _healthy ? Icons.eco : Icons.no_food_outlined,
-                              size: 16,
-                              color: _healthy
-                                  ? AppColors.success
-                                  : AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _healthy ? 'Healthy' : 'Any',
-                              style: TextStyle(
-                                color: _healthy
-                                    ? AppColors.success
-                                    : AppColors.textSecondary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: t.bgSurface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: t.borderSubtle),
+                      ),
+                      child: Row(
+                        children: [
+                          // ANY pill
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _loading
+                                  ? null
+                                  : () => setState(() => _healthy = false),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 9,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: !_healthy
+                                      ? t.bgCard
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: !_healthy
+                                        ? t.borderMedium
+                                        : Colors.transparent,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.tune_rounded,
+                                      size: 13,
+                                      color: !_healthy
+                                          ? t.textPrimary
+                                          : t.textMuted,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      'Any',
+                                      style: TextStyle(
+                                        color: !_healthy
+                                            ? t.textPrimary
+                                            : t.textMuted,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                          // HEALTHY pill
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _loading
+                                  ? null
+                                  : () => setState(() => _healthy = true),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 9,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _healthy
+                                      ? AppColors.success.withValues(
+                                          alpha: 0.12,
+                                        )
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _healthy
+                                        ? AppColors.success.withValues(
+                                            alpha: 0.4,
+                                          )
+                                        : Colors.transparent,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.eco_rounded,
+                                      size: 13,
+                                      color: _healthy
+                                          ? AppColors.success
+                                          : t.textMuted,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      'Healthy',
+                                      style: TextStyle(
+                                        color: _healthy
+                                            ? AppColors.success
+                                            : t.textMuted,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -335,14 +448,13 @@ class _CookScreenState extends State<CookScreen> {
 
           const SizedBox(height: 16),
 
-          // Find button
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.goldPrimary,
-                foregroundColor: Colors.black,
+                foregroundColor: AppColors.textOnGold,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -358,12 +470,12 @@ class _CookScreenState extends State<CookScreen> {
                         color: Colors.black,
                       ),
                     )
-                  : Row(
+                  : const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.auto_awesome, size: 16),
-                        const SizedBox(width: 8),
-                        const Text(
+                        Icon(Icons.auto_awesome, size: 16),
+                        SizedBox(width: 8),
+                        Text(
                           'Find Recipes with My Ingredients',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
@@ -379,8 +491,7 @@ class _CookScreenState extends State<CookScreen> {
     );
   }
 
-  // Results
-  Widget _buildResults() {
+  Widget _buildResults(BuildContext context, AppTheme t) {
     if (_loading) {
       return Center(
         child: Column(
@@ -388,11 +499,14 @@ class _CookScreenState extends State<CookScreen> {
           children: [
             const CircularProgressIndicator(color: AppColors.goldPrimary),
             const SizedBox(height: 20),
-            Text('Checking your pantry…', style: AppTextStyles.bodyMedium),
+            Text(
+              'Checking your pantry…',
+              style: AppTextStyles.bodyMediumOf(context),
+            ),
             const SizedBox(height: 8),
             Text(
               'Gemini is finding recipes for you',
-              style: AppTextStyles.bodySmall,
+              style: AppTextStyles.bodySmallOf(context),
             ),
           ],
         ),
@@ -410,7 +524,7 @@ class _CookScreenState extends State<CookScreen> {
               const SizedBox(height: 16),
               Text(
                 _error!,
-                style: AppTextStyles.bodyMedium,
+                style: AppTextStyles.bodyMediumOf(context),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -426,17 +540,20 @@ class _CookScreenState extends State<CookScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.restaurant_menu_outlined,
-                color: AppColors.textMuted,
+                color: t.textMuted,
                 size: 64,
               ),
               const SizedBox(height: 20),
-              Text('Ready to Cook?', style: AppTextStyles.headingMedium),
+              Text(
+                'Ready to Cook?',
+                style: AppTextStyles.headingMediumOf(context),
+              ),
               const SizedBox(height: 8),
               Text(
                 'Pick a cuisine, number of people, and tap Find Recipes.\nWe\'ll check your pantry and suggest what you can make.',
-                style: AppTextStyles.bodySmall,
+                style: AppTextStyles.bodySmallOf(context),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -452,17 +569,16 @@ class _CookScreenState extends State<CookScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.no_food_outlined,
-                color: AppColors.textMuted,
-                size: 48,
-              ),
+              Icon(Icons.no_food_outlined, color: t.textMuted, size: 48),
               const SizedBox(height: 16),
-              Text('Nothing found', style: AppTextStyles.headingMedium),
+              Text(
+                'Nothing found',
+                style: AppTextStyles.headingMediumOf(context),
+              ),
               const SizedBox(height: 8),
               Text(
                 'Try a different cuisine or add more items to your pantry.',
-                style: AppTextStyles.bodySmall,
+                style: AppTextStyles.bodySmallOf(context),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -480,17 +596,19 @@ class _CookScreenState extends State<CookScreen> {
   }
 
   static InputDecoration _inputDec(
+    BuildContext context,
+    AppTheme t,
     String label,
     IconData icon,
   ) => InputDecoration(
     labelText: label,
-    labelStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
-    prefixIcon: Icon(icon, color: const Color(0xFF888888), size: 18),
+    labelStyle: TextStyle(color: t.textSecondary, fontSize: 12),
+    prefixIcon: Icon(icon, color: t.textSecondary, size: 18),
     filled: true,
-    fillColor: const Color(0xFF111111),
+    fillColor: t.bgSurface,
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+      borderSide: BorderSide(color: t.borderSubtle),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -500,7 +618,7 @@ class _CookScreenState extends State<CookScreen> {
   );
 }
 
-// Recipe Card
+// ── Recipe Card ───────────────────────────────────────────────────────────────
 class _RecipeCard extends StatefulWidget {
   final Map<String, dynamic> recipe;
   const _RecipeCard({required this.recipe});
@@ -513,6 +631,7 @@ class _RecipeCardState extends State<_RecipeCard> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     final r = widget.recipe;
     final canMake = r['canMake'] as bool? ?? false;
     final healthy = r['healthy'] as bool? ?? false;
@@ -528,12 +647,12 @@ class _RecipeCardState extends State<_RecipeCard> {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: canMake
               ? AppColors.success.withValues(alpha: 0.4)
-              : AppColors.borderSubtle,
+              : t.borderSubtle,
         ),
       ),
       child: Column(
@@ -547,7 +666,6 @@ class _RecipeCardState extends State<_RecipeCard> {
               children: [
                 Row(
                   children: [
-                    // Can make badge
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -556,7 +674,7 @@ class _RecipeCardState extends State<_RecipeCard> {
                       decoration: BoxDecoration(
                         color: canMake
                             ? AppColors.success.withValues(alpha: 0.12)
-                            : AppColors.warningDim,
+                            : t.warningDim,
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
                           color: canMake
@@ -604,16 +722,12 @@ class _RecipeCardState extends State<_RecipeCard> {
                             color: AppColors.success.withValues(alpha: 0.3),
                           ),
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.eco,
-                              size: 11,
-                              color: AppColors.success,
-                            ),
-                            const SizedBox(width: 4),
-                            const Text(
+                            Icon(Icons.eco, size: 11, color: AppColors.success),
+                            SizedBox(width: 4),
+                            Text(
                               'Healthy',
                               style: TextStyle(
                                 color: AppColors.success,
@@ -625,34 +739,30 @@ class _RecipeCardState extends State<_RecipeCard> {
                         ),
                       ),
                     const Spacer(),
-                    // Time
                     Text(
                       '${r['prepTime'] ?? ''} + ${r['cookTime'] ?? ''}',
-                      style: AppTextStyles.bodySmall,
+                      style: AppTextStyles.bodySmallOf(context),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
-
                 Text(
                   r['name'] as String? ?? '',
-                  style: AppTextStyles.headingMedium,
+                  style: AppTextStyles.headingMediumOf(context),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   r['description'] as String? ?? '',
-                  style: AppTextStyles.bodySmall,
+                  style: AppTextStyles.bodySmallOf(context),
                   maxLines: _expanded ? null : 2,
                   overflow: _expanded ? null : TextOverflow.ellipsis,
                 ),
-
-                // Missing ingredients warning
                 if (missing.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.warningDim,
+                      color: t.warningDim,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -688,7 +798,7 @@ class _RecipeCardState extends State<_RecipeCard> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
-                color: AppColors.bgSurface,
+                color: t.bgSurface,
                 borderRadius: _expanded
                     ? BorderRadius.zero
                     : const BorderRadius.vertical(bottom: Radius.circular(14)),
@@ -722,7 +832,6 @@ class _RecipeCardState extends State<_RecipeCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Ingredients
                   Text('INGREDIENTS', style: AppTextStyles.goldLabel),
                   const SizedBox(height: 8),
                   ...ingredients.map((ing) {
@@ -744,19 +853,19 @@ class _RecipeCardState extends State<_RecipeCard> {
                           Expanded(
                             child: Text(
                               ing['name'] as String? ?? '',
-                              style: AppTextStyles.bodySmall,
+                              style: AppTextStyles.bodySmallOf(context),
                             ),
                           ),
                           Text(
                             'Need ${ing['required'] ?? ''}',
-                            style: AppTextStyles.bodySmall.copyWith(
-                              color: AppColors.textMuted,
-                            ),
+                            style: AppTextStyles.bodySmallOf(
+                              context,
+                            ).copyWith(color: t.textMuted),
                           ),
                           const SizedBox(width: 6),
                           Text(
                             'Have ${ing['available'] ?? ''}',
-                            style: AppTextStyles.bodySmall.copyWith(
+                            style: AppTextStyles.bodySmallOf(context).copyWith(
                               color: sufficient
                                   ? AppColors.success
                                   : AppColors.error,
@@ -781,7 +890,7 @@ class _RecipeCardState extends State<_RecipeCard> {
                               width: 22,
                               height: 22,
                               decoration: BoxDecoration(
-                                color: AppColors.goldDim,
+                                color: t.goldDim,
                                 shape: BoxShape.circle,
                               ),
                               child: Center(
@@ -799,9 +908,9 @@ class _RecipeCardState extends State<_RecipeCard> {
                             Expanded(
                               child: Text(
                                 e.value,
-                                style: AppTextStyles.bodySmall.copyWith(
-                                  height: 1.5,
-                                ),
+                                style: AppTextStyles.bodySmallOf(
+                                  context,
+                                ).copyWith(height: 1.5),
                               ),
                             ),
                           ],
@@ -815,6 +924,37 @@ class _RecipeCardState extends State<_RecipeCard> {
             const SizedBox(height: 4),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final AppTheme t;
+  const _SummaryChip({
+    required this.label,
+    required this.color,
+    required this.t,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }

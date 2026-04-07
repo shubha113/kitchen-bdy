@@ -26,7 +26,6 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
   final _ssidCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
 
-  // Per-slot controllers — populated once discoveredSlots arrives
   final Map<int, TextEditingController> _slotName = {};
   final Map<int, TextEditingController> _slotLocation = {};
   final Map<int, String> _slotCategory = {};
@@ -58,7 +57,6 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     super.dispose();
   }
 
-  // ── Permissions + scan ────────────────────────────────────────────────────
   Future<void> _checkPermissionsAndScan() async {
     final statuses = await [
       Permission.bluetooth,
@@ -87,7 +85,6 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     });
   }
 
-  // ── Connect to BLE device ─────────────────────────────────────────────────
   Future<void> _connectToDevice(Map<String, String> device) async {
     setState(() {
       _selectedDevice = device;
@@ -95,11 +92,9 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
       _provisioningStatus = 'Connecting via Bluetooth…';
       _provisioningFailed = false;
     });
-
     final prov = context.read<AppProvider>();
     final success = await prov.connectToDevice(device['id']!);
     if (!mounted) return;
-
     if (success) {
       setState(() => _step = _Step.wifi);
     } else {
@@ -111,21 +106,17 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     }
   }
 
-  // ── Send WiFi → wait for SENSORS notification ─────────────────────────────
   Future<void> _sendWifi() async {
     final ssid = _ssidCtrl.text.trim();
     if (ssid.isEmpty) return;
-
     setState(() {
       _step = _Step.provision;
       _provisioningStatus = 'Sending Wi-Fi credentials…';
       _provisioningFailed = false;
     });
-
     final prov = context.read<AppProvider>();
     final success = await prov.sendWifiCredentials(ssid, _passCtrl.text);
     if (!mounted) return;
-
     if (!success) {
       setState(() {
         _provisioningFailed = true;
@@ -133,25 +124,20 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
       });
       return;
     }
-
     setState(
       () => _provisioningStatus =
           'Credentials sent — waiting for sensor discovery…',
     );
-
-    // Poll discoveredSlots for up to 20s
     for (int i = 0; i < 40; i++) {
       await Future.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
       if (prov.discoveredSlots.isNotEmpty) break;
     }
-
     if (!mounted) return;
     _initSlotControllers(prov.discoveredSlots);
     setState(() => _step = _Step.slots);
   }
 
-  // ── Build per-slot controllers ────────────────────────────────────────────
   void _initSlotControllers(List<int> slots) {
     for (final s in slots) {
       _slotName[s] ??= TextEditingController(text: 'Sensor $s');
@@ -160,13 +146,11 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     }
   }
 
-  // ── Register all slots to backend ─────────────────────────────────────────
   Future<void> _registerSlots() async {
     final prov = context.read<AppProvider>();
     final espId = prov.connectedEspId.isNotEmpty
         ? prov.connectedEspId
         : 'ESP32_SCALE_1';
-
     final sensors = prov.discoveredSlots
         .map(
           (slot) => {
@@ -182,57 +166,48 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
           },
         )
         .toList();
-
     if (sensors.isEmpty) return;
-
     setState(() => _registering = true);
-    debugPrint(
-      '[Register] espId=$espId slots=${prov.discoveredSlots} payload=$sensors',
-    );
-
-    final ok = await prov.registerDiscoveredSensors(sensors);
+    final result = await prov.registerDiscoveredSensorsWithError(sensors);
     if (!mounted) return;
-
     setState(() => _registering = false);
-
-    if (ok) {
+    if (result['ok'] == true) {
       setState(() => _step = _Step.done);
     } else {
+      final msg =
+          result['message'] as String? ?? 'Registration failed. Try again.';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Registration failed. Check your connection and try again.',
-          ),
+        SnackBar(
+          content: Text(msg),
           backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 4),
         ),
       );
     }
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: AppColors.bgPrimary,
-    appBar: AppBar(
-      backgroundColor: AppColors.bgPrimary,
-      elevation: 0,
-      leading: IconButton(
-        icon: const Icon(
-          Icons.arrow_back_ios,
-          color: AppColors.textSecondary,
-          size: 18,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return Scaffold(
+      backgroundColor: t.bgPrimary,
+      appBar: AppBar(
+        backgroundColor: t.bgPrimary,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios, color: t.textSecondary, size: 18),
+          onPressed: () => Navigator.pop(context),
         ),
-        onPressed: () => Navigator.pop(context),
+        title: Text('Add Device', style: AppTextStyles.headingLargeOf(context)),
       ),
-      title: Text('Add Device', style: AppTextStyles.headingLarge),
-    ),
-    body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: _buildStep(context),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: _buildStep(context),
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _buildStep(BuildContext ctx) {
     switch (_step) {
@@ -251,73 +226,74 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     }
   }
 
-  // ─── SCAN ─────────────────────────────────────────────────────────────────
-  Widget _buildScanStep() => Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        ScaleTransition(
-          scale: _pulseAnim,
-          child: Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.goldPrimary, width: 2),
-              gradient: const RadialGradient(
-                colors: [AppColors.goldDim, AppColors.bgCard],
+  // SCAN
+  Widget _buildScanStep() {
+    final t = AppTheme.of(context);
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ScaleTransition(
+            scale: _pulseAnim,
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.goldPrimary, width: 2),
+                gradient: RadialGradient(colors: [t.goldDim, t.bgCard]),
+              ),
+              child: const Icon(
+                Icons.bluetooth_searching,
+                color: AppColors.goldPrimary,
+                size: 48,
               ),
             ),
-            child: const Icon(
-              Icons.bluetooth_searching,
+          ),
+          const SizedBox(height: 32),
+          Text(
+            'Scanning for Devices',
+            style: AppTextStyles.displaySmallOf(context),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Make sure your KitchenBDY device\nis powered on and nearby.',
+            style: AppTextStyles.bodyMediumOf(
+              context,
+            ).copyWith(color: t.textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          const SizedBox(
+            width: 48,
+            height: 48,
+            child: CircularProgressIndicator(
               color: AppColors.goldPrimary,
-              size: 48,
+              strokeWidth: 2,
             ),
           ),
-        ),
-        const SizedBox(height: 32),
-        Text(
-          'Scanning for Devices',
-          style: AppTextStyles.displaySmall,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Make sure your KitchenBDY device\nis powered on and nearby.',
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.textSecondary,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 32),
-        const SizedBox(
-          width: 48,
-          height: 48,
-          child: CircularProgressIndicator(
-            color: AppColors.goldPrimary,
-            strokeWidth: 2,
-          ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 
-  // ─── SELECT ───────────────────────────────────────────────────────────────
+  // SELECT
   Widget _buildSelectStep(BuildContext ctx) {
+    final t = AppTheme.of(context);
     final devices = ctx.watch<AppProvider>().scannedDevices;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _StepIndicator(current: 1),
         const SizedBox(height: 24),
-        Text('Devices Found', style: AppTextStyles.displaySmall),
+        Text('Devices Found', style: AppTextStyles.displaySmallOf(context)),
         const SizedBox(height: 8),
         Text(
           '${devices.length} device${devices.length == 1 ? '' : 's'} nearby.',
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.textSecondary,
-          ),
+          style: AppTextStyles.bodyMediumOf(
+            context,
+          ).copyWith(color: t.textSecondary),
         ),
         const SizedBox(height: 24),
         Expanded(
@@ -326,15 +302,15 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.bluetooth_disabled,
-                        color: AppColors.textMuted,
+                        color: t.textMuted,
                         size: 48,
                       ),
                       const SizedBox(height: 16),
                       Text(
                         'No devices found',
-                        style: AppTextStyles.headingMedium,
+                        style: AppTextStyles.headingMediumOf(context),
                       ),
                     ],
                   ),
@@ -355,16 +331,16 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: AppColors.bgCard,
+                          color: t.bgCard,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.borderSubtle),
+                          border: Border.all(color: t.borderSubtle),
                         ),
                         child: Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: AppColors.goldDim,
+                                color: t.goldDim,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Icon(
@@ -380,11 +356,13 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                                 children: [
                                   Text(
                                     d['name'] ?? '',
-                                    style: AppTextStyles.headingMedium,
+                                    style: AppTextStyles.headingMediumOf(
+                                      context,
+                                    ),
                                   ),
                                   Text(
                                     'MAC: ${d['mac']}',
-                                    style: AppTextStyles.bodySmall,
+                                    style: AppTextStyles.bodySmallOf(context),
                                   ),
                                 ],
                               ),
@@ -422,198 +400,213 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     );
   }
 
-  // ─── WIFI ─────────────────────────────────────────────────────────────────
-  Widget _buildWifiStep() => SingleChildScrollView(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _StepIndicator(current: 2),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppColors.successDim,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.success.withOpacity(0.3)),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.check_circle_outline,
-                color: AppColors.success,
-                size: 18,
+  // WIFI
+  Widget _buildWifiStep() {
+    final t = AppTheme.of(context);
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _StepIndicator(current: 2),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: t.successDim,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.success.withValues(alpha: 0.3),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Connected to ${_selectedDevice?['name'] ?? ''} via Bluetooth',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.success,
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.check_circle_outline,
+                  color: AppColors.success,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Connected to ${_selectedDevice?['name'] ?? ''} via Bluetooth',
+                    style: AppTextStyles.bodySmallOf(
+                      context,
+                    ).copyWith(color: AppColors.success),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text('Enter Wi-Fi Details', style: AppTextStyles.displaySmall),
-        const SizedBox(height: 8),
-        Text(
-          'These credentials will be sent to the device\nover Bluetooth.',
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: 28),
-        Text('NETWORK NAME', style: AppTextStyles.goldLabel),
-        const SizedBox(height: 8),
-        _InputField(
-          controller: _ssidCtrl,
-          label: 'Wi-Fi Name',
-          icon: Icons.wifi_rounded,
-        ),
-        const SizedBox(height: 16),
-        Text('PASSWORD', style: AppTextStyles.goldLabel),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _passCtrl,
-          obscureText: _obscurePass,
-          style: AppTextStyles.bodyMedium,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(
-              Icons.lock_outline,
-              color: AppColors.textSecondary,
-              size: 18,
+              ],
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePass
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-                color: AppColors.textSecondary,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Enter Wi-Fi Details',
+            style: AppTextStyles.displaySmallOf(context),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'These credentials will be sent to the device\nover Bluetooth.',
+            style: AppTextStyles.bodyMediumOf(
+              context,
+            ).copyWith(color: t.textSecondary),
+          ),
+          const SizedBox(height: 28),
+          Text('NETWORK NAME', style: AppTextStyles.goldLabel),
+          const SizedBox(height: 8),
+          _InputField(
+            controller: _ssidCtrl,
+            label: 'Wi-Fi Name',
+            icon: Icons.wifi_rounded,
+          ),
+          const SizedBox(height: 16),
+          Text('PASSWORD', style: AppTextStyles.goldLabel),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _passCtrl,
+            obscureText: _obscurePass,
+            style: AppTextStyles.bodyMediumOf(context),
+            decoration: InputDecoration(
+              prefixIcon: Icon(
+                Icons.lock_outline,
+                color: t.textSecondary,
                 size: 18,
               ),
-              onPressed: () => setState(() => _obscurePass = !_obscurePass),
-            ),
-            labelText: 'Password',
-            labelStyle: AppTextStyles.bodySmall,
-            filled: true,
-            fillColor: AppColors.bgCard,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: AppColors.goldPrimary,
-                width: 1.5,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePass
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: t.textSecondary,
+                  size: 18,
+                ),
+                onPressed: () => setState(() => _obscurePass = !_obscurePass),
+              ),
+              labelText: 'Password',
+              labelStyle: AppTextStyles.bodySmallOf(context),
+              filled: true,
+              fillColor: t.bgCard,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: AppColors.goldPrimary,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 32),
-        GestureDetector(
-          onTap: _ssidCtrl.text.trim().isEmpty ? null : _sendWifi,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            decoration: BoxDecoration(
-              gradient: AppColors.goldGradient,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Text(
-              'Send to Device',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.headingMedium.copyWith(
-                color: AppColors.textOnGold,
+          const SizedBox(height: 32),
+          GestureDetector(
+            onTap: _ssidCtrl.text.trim().isEmpty ? null : _sendWifi,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                gradient: AppColors.goldGradient,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                'Send to Device',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.headingMediumOf(
+                  context,
+                ).copyWith(color: AppColors.textOnGold),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 
-  // ─── PROVISION (spinner) ──────────────────────────────────────────────────
-  Widget _buildProvisionStep() => Column(
-    crossAxisAlignment: CrossAxisAlignment.center,
-    children: [
-      _StepIndicator(current: 2),
-      const SizedBox(height: 40),
-      Container(
-        width: 80,
-        height: 80,
-        decoration: BoxDecoration(
-          color: AppColors.bgCard,
-          shape: BoxShape.circle,
-          border: Border.all(
+  // PROVISION
+  Widget _buildProvisionStep() {
+    final t = AppTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _StepIndicator(current: 2),
+        const SizedBox(height: 40),
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            color: t.bgCard,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: _provisioningFailed
+                  ? AppColors.error
+                  : AppColors.goldPrimary,
+              width: 1.5,
+            ),
+          ),
+          child: Icon(
+            _provisioningFailed ? Icons.error_outline : Icons.wifi,
             color: _provisioningFailed
                 ? AppColors.error
                 : AppColors.goldPrimary,
-            width: 1.5,
+            size: 36,
           ),
         ),
-        child: Icon(
-          _provisioningFailed ? Icons.error_outline : Icons.wifi,
-          color: _provisioningFailed ? AppColors.error : AppColors.goldPrimary,
-          size: 36,
+        const SizedBox(height: 32),
+        Text(
+          'Provisioning Device',
+          style: AppTextStyles.displaySmallOf(context),
         ),
-      ),
-      const SizedBox(height: 32),
-      Text('Provisioning Device', style: AppTextStyles.displaySmall),
-      const SizedBox(height: 8),
-      Text(
-        _selectedDevice?['name'] ?? '',
-        style: AppTextStyles.headingMedium.copyWith(
-          color: AppColors.goldPrimary,
+        const SizedBox(height: 8),
+        Text(
+          _selectedDevice?['name'] ?? '',
+          style: AppTextStyles.headingMediumOf(
+            context,
+          ).copyWith(color: AppColors.goldPrimary),
         ),
-      ),
-      const SizedBox(height: 24),
-      Text(
-        _provisioningStatus,
-        style: AppTextStyles.bodyMedium.copyWith(
-          color: _provisioningFailed
-              ? AppColors.error
-              : AppColors.textSecondary,
-        ),
-        textAlign: TextAlign.center,
-      ),
-      if (!_provisioningFailed) ...[
         const SizedBox(height: 24),
-        const SizedBox(
-          width: 48,
-          height: 48,
-          child: CircularProgressIndicator(
-            color: AppColors.goldPrimary,
-            strokeWidth: 2,
+        Text(
+          _provisioningStatus,
+          style: AppTextStyles.bodyMediumOf(context).copyWith(
+            color: _provisioningFailed ? AppColors.error : t.textSecondary,
           ),
+          textAlign: TextAlign.center,
         ),
-      ],
-      if (_provisioningFailed) ...[
-        const SizedBox(height: 16),
-        GestureDetector(
-          onTap: () => setState(() => _step = _Step.wifi),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.goldPrimary),
-              borderRadius: BorderRadius.circular(10),
+        if (!_provisioningFailed) ...[
+          const SizedBox(height: 24),
+          const SizedBox(
+            width: 48,
+            height: 48,
+            child: CircularProgressIndicator(
+              color: AppColors.goldPrimary,
+              strokeWidth: 2,
             ),
-            child: Text(
-              'Try Again',
-              style: AppTextStyles.labelMedium.copyWith(
-                color: AppColors.goldPrimary,
+          ),
+        ],
+        if (_provisioningFailed) ...[
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () => setState(() => _step = _Step.wifi),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.goldPrimary),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'Try Again',
+                style: AppTextStyles.labelMedium.copyWith(
+                  color: AppColors.goldPrimary,
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ],
-    ],
-  );
+    );
+  }
 
-  // ─── SLOTS — name each sensor individually ────────────────────────────────
+  // SLOTS
   Widget _buildSlotsStep(BuildContext ctx) {
+    final t = AppTheme.of(context);
     final slots = ctx.watch<AppProvider>().discoveredSlots;
 
     if (slots.isEmpty) {
@@ -631,9 +624,9 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
           const SizedBox(height: 24),
           Text(
             'Waiting for sensor discovery…',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
+            style: AppTextStyles.bodyMediumOf(
+              context,
+            ).copyWith(color: t.textSecondary),
             textAlign: TextAlign.center,
           ),
         ],
@@ -646,17 +639,19 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
         children: [
           _StepIndicator(current: 3),
           const SizedBox(height: 24),
-          Text('Name Your Sensors', style: AppTextStyles.displaySmall),
+          Text(
+            'Name Your Sensors',
+            style: AppTextStyles.displaySmallOf(context),
+          ),
           const SizedBox(height: 8),
           Text(
             '${slots.length} sensor${slots.length == 1 ? '' : 's'} detected on this ESP32.\nGive each one a name so you can identify it.',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
+            style: AppTextStyles.bodyMediumOf(
+              context,
+            ).copyWith(color: t.textSecondary),
           ),
           const SizedBox(height: 24),
 
-          // One card per slot
           ...slots.map((slot) {
             _slotName[slot] ??= TextEditingController(text: 'Sensor $slot');
             _slotLocation[slot] ??= TextEditingController(text: 'Pantry');
@@ -666,14 +661,13 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
               margin: const EdgeInsets.only(bottom: 16),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppColors.bgCard,
+                color: t.bgCard,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.borderSubtle),
+                border: Border.all(color: t.borderSubtle),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Slot header
                   Row(
                     children: [
                       Container(
@@ -682,7 +676,7 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.goldDim,
+                          color: t.goldDim,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -695,24 +689,18 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // Name
                   _InputField(
                     controller: _slotName[slot]!,
                     label: 'Sensor name (e.g. Rice, Sugar)',
                     icon: Icons.label_outline,
                   ),
                   const SizedBox(height: 10),
-
-                  // Location
                   _InputField(
                     controller: _slotLocation[slot]!,
                     label: 'Location (e.g. Shelf 1)',
                     icon: Icons.location_on_outlined,
                   ),
                   const SizedBox(height: 10),
-
-                  // Category chips
                   Text('CATEGORY', style: AppTextStyles.goldLabel),
                   const SizedBox(height: 6),
                   Wrap(
@@ -728,22 +716,20 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: sel
-                                ? AppColors.goldDim
-                                : AppColors.bgCardElevated,
+                            color: sel ? t.goldDim : t.bgCardElevated,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: sel
                                   ? AppColors.goldPrimary
-                                  : AppColors.borderSubtle,
+                                  : t.borderSubtle,
                             ),
                           ),
                           child: Text(
                             cat,
-                            style: AppTextStyles.bodySmall.copyWith(
+                            style: AppTextStyles.bodySmallOf(context).copyWith(
                               color: sel
                                   ? AppColors.goldPrimary
-                                  : AppColors.textSecondary,
+                                  : t.textSecondary,
                               fontSize: 11,
                             ),
                           ),
@@ -780,9 +766,9 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
                   : Text(
                       'Register ${slots.length} Sensor${slots.length == 1 ? '' : 's'}',
                       textAlign: TextAlign.center,
-                      style: AppTextStyles.headingMedium.copyWith(
-                        color: AppColors.textOnGold,
-                      ),
+                      style: AppTextStyles.headingMediumOf(
+                        context,
+                      ).copyWith(color: AppColors.textOnGold),
                     ),
             ),
           ),
@@ -792,8 +778,9 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
     );
   }
 
-  // ─── DONE ─────────────────────────────────────────────────────────────────
+  // DONE
   Widget _buildDoneStep() {
+    final t = AppTheme.of(context);
     final slots = context.read<AppProvider>().discoveredSlots;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -801,8 +788,8 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
         Container(
           width: 100,
           height: 100,
-          decoration: const BoxDecoration(
-            color: AppColors.successDim,
+          decoration: BoxDecoration(
+            color: t.successDim,
             shape: BoxShape.circle,
           ),
           child: const Icon(
@@ -812,13 +799,16 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
           ),
         ),
         const SizedBox(height: 24),
-        Text('Device Registered!', style: AppTextStyles.displaySmall),
+        Text(
+          'Device Registered!',
+          style: AppTextStyles.displaySmallOf(context),
+        ),
         const SizedBox(height: 8),
         Text(
           '${slots.length} sensor${slots.length == 1 ? '' : 's'} saved to your account.\nLive weight data will appear shortly.',
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.textSecondary,
-          ),
+          style: AppTextStyles.bodyMediumOf(
+            context,
+          ).copyWith(color: t.textSecondary),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 40),
@@ -832,15 +822,15 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             decoration: BoxDecoration(
-              color: AppColors.bgCard,
+              color: t.bgCard,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.borderGold),
+              border: Border.all(color: t.borderGold),
             ),
             child: Text(
               'Add Another Device',
-              style: AppTextStyles.headingSmall.copyWith(
-                color: AppColors.goldPrimary,
-              ),
+              style: AppTextStyles.headingSmallOf(
+                context,
+              ).copyWith(color: AppColors.goldPrimary),
             ),
           ),
         ),
@@ -855,9 +845,9 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
             ),
             child: Text(
               'Back to Devices',
-              style: AppTextStyles.headingSmall.copyWith(
-                color: AppColors.textOnGold,
-              ),
+              style: AppTextStyles.headingSmallOf(
+                context,
+              ).copyWith(color: AppColors.textOnGold),
             ),
           ),
         ),
@@ -866,12 +856,14 @@ class _ScanDevicesScreenState extends State<ScanDevicesScreen>
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Step Indicator ────────────────────────────────────────────────────────────
 class _StepIndicator extends StatelessWidget {
   final int current;
   const _StepIndicator({required this.current});
+
   @override
-  Widget build(BuildContext ctx) {
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     const steps = ['Scan', 'Provision', 'Name'];
     return Row(
       children: List.generate(steps.length * 2 - 1, (i) {
@@ -881,7 +873,7 @@ class _StepIndicator extends StatelessWidget {
               height: 1,
               color: i ~/ 2 < current - 1
                   ? AppColors.goldPrimary
-                  : AppColors.borderSubtle,
+                  : t.borderSubtle,
             ),
           );
         }
@@ -898,12 +890,12 @@ class _StepIndicator extends StatelessWidget {
                 color: done
                     ? AppColors.goldPrimary
                     : active
-                    ? AppColors.goldDim
-                    : AppColors.bgCard,
+                    ? t.goldDim
+                    : t.bgCard,
                 border: Border.all(
                   color: active || done
                       ? AppColors.goldPrimary
-                      : AppColors.borderSubtle,
+                      : t.borderSubtle,
                 ),
               ),
               child: done
@@ -916,9 +908,7 @@ class _StepIndicator extends StatelessWidget {
                       child: Text(
                         '$idx',
                         style: AppTextStyles.labelSmall.copyWith(
-                          color: active
-                              ? AppColors.goldPrimary
-                              : AppColors.textMuted,
+                          color: active ? AppColors.goldPrimary : t.textMuted,
                         ),
                       ),
                     ),
@@ -927,7 +917,7 @@ class _StepIndicator extends StatelessWidget {
             Text(
               steps[i ~/ 2],
               style: AppTextStyles.labelSmall.copyWith(
-                color: active ? AppColors.goldPrimary : AppColors.textMuted,
+                color: active ? AppColors.goldPrimary : t.textMuted,
               ),
             ),
           ],
@@ -937,6 +927,7 @@ class _StepIndicator extends StatelessWidget {
   }
 }
 
+// ── Input Field ───────────────────────────────────────────────────────────────
 class _InputField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
@@ -946,24 +937,31 @@ class _InputField extends StatelessWidget {
     required this.label,
     required this.icon,
   });
+
   @override
-  Widget build(BuildContext ctx) => TextField(
-    controller: controller,
-    style: AppTextStyles.bodyMedium,
-    decoration: InputDecoration(
-      prefixIcon: Icon(icon, color: AppColors.textSecondary, size: 18),
-      labelText: label,
-      labelStyle: AppTextStyles.bodySmall,
-      filled: true,
-      fillColor: AppColors.bgCard,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide.none,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return TextField(
+      controller: controller,
+      style: AppTextStyles.bodyMediumOf(context),
+      decoration: InputDecoration(
+        prefixIcon: Icon(icon, color: t.textSecondary, size: 18),
+        labelText: label,
+        labelStyle: AppTextStyles.bodySmallOf(context),
+        filled: true,
+        fillColor: t.bgCard,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(
+            color: AppColors.goldPrimary,
+            width: 1.5,
+          ),
+        ),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.goldPrimary, width: 1.5),
-      ),
-    ),
-  );
+    );
+  }
 }

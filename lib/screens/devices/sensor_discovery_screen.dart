@@ -1,8 +1,9 @@
+import 'package:app/providers/app_provider.dart';
 import 'package:flutter/material.dart';
-import 'package:kitchen_bdy/providers/app_provider.dart';
 import 'package:provider/provider.dart';
+import '../../constants/app_colors.dart';
+import '../../constants/app_text_styles.dart';
 
-// Categories
 const _categories = [
   'Grains',
   'Spices',
@@ -37,14 +38,6 @@ class SensorDiscoveryScreen extends StatefulWidget {
 }
 
 class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
-  static const _bg = Color(0xFF0F0F0F);
-  static const _surface = Color(0xFF1A1A1A);
-  static const _gold = Color(0xFFD4A843);
-  static const _grey = Color(0xFF888888);
-  static const _border = Color(0xFF2A2A2A);
-  static const _white = Colors.white;
-
-  // For each slot, store name + location + category controllers
   late final List<TextEditingController> _nameCtrl;
   late final List<String> _location;
   late final List<String> _category;
@@ -65,21 +58,17 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
 
   @override
   void dispose() {
-    for (final c in _nameCtrl) {
-      c.dispose();
-    }
+    for (final c in _nameCtrl) c.dispose();
     super.dispose();
   }
 
   Future<void> _saveAll() async {
-    // Validate — every sensor needs a name
     for (int i = 0; i < widget.slots.length; i++) {
       if (_nameCtrl[i].text.trim().isEmpty) {
         setState(() => _error = 'Give a name to slot ${widget.slots[i]}');
         return;
       }
     }
-
     setState(() {
       _saving = true;
       _error = null;
@@ -98,16 +87,14 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
 
     final provider = context.read<AppProvider>();
     final ok = await provider.registerDiscoveredSensors(sensors);
-
     if (!mounted) return;
 
     if (ok) {
-      // Done — go back to home
       Navigator.of(context).popUntil((route) => route.isFirst);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${widget.slots.length} sensor(s) added successfully!'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -121,44 +108,45 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: t.bgPrimary,
       appBar: AppBar(
-        backgroundColor: _bg,
+        backgroundColor: t.bgPrimary,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_rounded,
-            color: _white,
+            color: t.textPrimary,
             size: 20,
           ),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Name Your Sensors',
-          style: TextStyle(color: _white, fontWeight: FontWeight.bold),
+          style: AppTextStyles.headingLargeOf(context),
         ),
       ),
       body: Column(
         children: [
-          _buildHeader(),
+          _buildHeader(context, t),
           Expanded(
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: widget.slots.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (_, i) => _buildSensorCard(i),
+              itemBuilder: (_, i) => _buildSensorCard(context, t, i),
             ),
           ),
-          _buildSaveButton(),
+          _buildSaveButton(context, t),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() => Container(
+  Widget _buildHeader(BuildContext context, AppTheme t) => Container(
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-    color: _surface,
+    color: t.bgCard,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -167,19 +155,25 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: _gold.withValues(alpha: 0.15),
+                color: AppColors.goldPrimary.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: _gold.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: AppColors.goldPrimary.withValues(alpha: 0.3),
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.check_circle, color: _gold, size: 14),
+                  const Icon(
+                    Icons.check_circle,
+                    color: AppColors.goldPrimary,
+                    size: 14,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     '${widget.slots.length} sensor(s) found',
                     style: const TextStyle(
-                      color: _gold,
+                      color: AppColors.goldPrimary,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -192,50 +186,48 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
         const SizedBox(height: 8),
         Text(
           'ESP32: ${widget.espId}',
-          style: const TextStyle(
-            color: _grey,
-            fontSize: 12,
-            fontFamily: 'monospace',
-          ),
+          style: AppTextStyles.bodySmallOf(
+            context,
+          ).copyWith(fontFamily: 'monospace', fontSize: 12),
         ),
         const SizedBox(height: 4),
-        const Text(
+        Text(
           'Give each sensor a name and location. You can rename them anytime.',
-          style: TextStyle(color: _grey, fontSize: 13),
+          style: AppTextStyles.bodySmallOf(context),
         ),
       ],
     ),
   );
 
-  Widget _buildSensorCard(int index) {
+  Widget _buildSensorCard(BuildContext context, AppTheme t, int index) {
     final slot = widget.slots[index];
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _surface,
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _border),
+        border: Border.all(color: t.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Slot badge
           Row(
             children: [
               Container(
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: _gold.withValues(alpha: 0.12),
+                  color: AppColors.goldPrimary.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
-                  border: Border.all(color: _gold.withValues(alpha: 0.4)),
+                  border: Border.all(
+                    color: AppColors.goldPrimary.withValues(alpha: 0.4),
+                  ),
                 ),
                 child: Center(
                   child: Text(
                     '$slot',
                     style: const TextStyle(
-                      color: _gold,
+                      color: AppColors.goldPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
                     ),
@@ -248,33 +240,31 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
                 children: [
                   Text(
                     'Slot $slot',
-                    style: const TextStyle(
-                      color: _white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: AppTextStyles.headingSmallOf(context),
                   ),
                   Text(
                     'HX711 sensor active',
-                    style: TextStyle(
-                      color: Colors.green.shade400,
-                      fontSize: 11,
-                    ),
+                    style: AppTextStyles.bodySmallOf(
+                      context,
+                    ).copyWith(color: AppColors.success),
                   ),
                 ],
               ),
             ],
           ),
-
           const SizedBox(height: 16),
 
           // Name field
           TextField(
             controller: _nameCtrl[index],
-            style: const TextStyle(color: _white, fontSize: 14),
-            decoration: _inputDec('Name', 'e.g. Basmati Rice, Sugar, Flour'),
+            style: AppTextStyles.bodyMediumOf(context),
+            decoration: _inputDec(
+              context,
+              t,
+              'Name',
+              'e.g. Basmati Rice, Sugar, Flour',
+            ),
           ),
-
           const SizedBox(height: 12),
 
           // Location + Category row
@@ -282,6 +272,8 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
             children: [
               Expanded(
                 child: _buildDropdown(
+                  context,
+                  t,
                   label: 'Location',
                   value: _location[index],
                   items: _locations,
@@ -291,6 +283,8 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _buildDropdown(
+                  context,
+                  t,
                   label: 'Category',
                   value: _category[index],
                   items: _categories,
@@ -304,23 +298,25 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
     );
   }
 
-  Widget _buildDropdown({
+  Widget _buildDropdown(
+    BuildContext context,
+    AppTheme t, {
     required String label,
     required String value,
     required List<String> items,
     required ValueChanged<String?> onChanged,
   }) => DropdownButtonFormField<String>(
     value: value,
-    dropdownColor: const Color(0xFF252525),
-    style: const TextStyle(color: _white, fontSize: 13),
-    decoration: _inputDec(label, ''),
+    dropdownColor: t.bgCardElevated,
+    style: TextStyle(color: t.textPrimary, fontSize: 13),
+    decoration: _inputDec(context, t, label, ''),
     items: items
         .map((s) => DropdownMenuItem(value: s, child: Text(s)))
         .toList(),
     onChanged: onChanged,
   );
 
-  Widget _buildSaveButton() => Container(
+  Widget _buildSaveButton(BuildContext context, AppTheme t) => Container(
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
     child: Column(
       children: [
@@ -329,13 +325,13 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.08),
+              color: AppColors.error.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+              border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
             ),
             child: Text(
               _error!,
-              style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+              style: TextStyle(color: AppColors.error, fontSize: 13),
             ),
           ),
           const SizedBox(height: 10),
@@ -346,9 +342,11 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
           child: ElevatedButton(
             onPressed: _saving ? null : _saveAll,
             style: ElevatedButton.styleFrom(
-              backgroundColor: _gold,
-              foregroundColor: Colors.black,
-              disabledBackgroundColor: _gold.withValues(alpha: 0.3),
+              backgroundColor: AppColors.goldPrimary,
+              foregroundColor: AppColors.textOnGold,
+              disabledBackgroundColor: AppColors.goldPrimary.withValues(
+                alpha: 0.3,
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -376,20 +374,25 @@ class _SensorDiscoveryScreenState extends State<SensorDiscoveryScreen> {
     ),
   );
 
-  InputDecoration _inputDec(String label, String hint) => InputDecoration(
+  InputDecoration _inputDec(
+    BuildContext context,
+    AppTheme t,
+    String label,
+    String hint,
+  ) => InputDecoration(
     labelText: label,
     hintText: hint,
-    labelStyle: const TextStyle(color: _grey, fontSize: 12),
-    hintStyle: const TextStyle(color: _grey, fontSize: 13),
+    labelStyle: AppTextStyles.bodySmallOf(context),
+    hintStyle: TextStyle(color: t.textMuted, fontSize: 13),
     filled: true,
-    fillColor: const Color(0xFF111111),
+    fillColor: t.bgSurface,
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _border),
+      borderSide: BorderSide(color: t.borderSubtle),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _gold, width: 1.5),
+      borderSide: const BorderSide(color: AppColors.goldPrimary, width: 1.5),
     ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
   );

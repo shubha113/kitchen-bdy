@@ -1,16 +1,3 @@
-/// Receipt parser that handles ML Kit's two-column OCR output.
-///
-/// THE CORE PROBLEM:
-/// ML Kit reads receipts as two separate columns — all left-column text first
-/// (item names, detail lines, noise), then all right-column text (prices).
-/// Names and prices are NEVER on the same line in the raw OCR output.
-///
-/// THE SOLUTION — three steps:
-///   1. Split lines into left-column (names/details/noise) vs right-column (prices)
-///   2. Build an ordered "slot list" from left column — every line that has a
-///      corresponding right-column price gets one slot (detail lines and
-///      header fragments like DATE/WED/dates do NOT get slots)
-///   3. Zip slots with prices by position index
 class ReceiptParser {
   // Public entry point
 

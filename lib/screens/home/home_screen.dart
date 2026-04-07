@@ -1,11 +1,15 @@
+import 'package:app/screens/alerts/alerts_screen.dart';
+import 'package:app/screens/cook/cook_screen.dart';
+import 'package:app/screens/inventory/inventory_screen.dart';
+import 'package:app/screens/waitlist/waitlist_screen.dart';
+import 'package:app/services/auth_service.dart';
 import 'package:flutter/material.dart';
-import 'package:kitchen_bdy/screens/cook/cook_screen.dart';
-import 'package:kitchen_bdy/services/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../providers/app_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../grocery/grocery_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -14,6 +18,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
+    final t = AppTheme.of(context);
     final now = DateTime.now();
     final hour = now.hour;
     final greeting = hour < 12
@@ -23,25 +28,26 @@ class HomeScreen extends StatelessWidget {
         : 'Good Evening';
 
     return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
+      backgroundColor: t.bgPrimary,
       body: CustomScrollView(
         slivers: [
-          // App Bar
           SliverAppBar(
             expandedHeight: 130,
             floating: false,
             pinned: true,
-            backgroundColor: AppColors.bgPrimary,
+            backgroundColor: t.bgPrimary,
             elevation: 0,
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
               title: Text('Kitchen BDY', style: AppTextStyles.goldHeading),
               background: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0xFF1A1500), AppColors.bgPrimary],
+                    colors: t.isDark
+                        ? [const Color(0xFF1A1500), AppColors.bgPrimary]
+                        : [const Color(0xFFFDF6E3), AppColors.lightBgPrimary],
                   ),
                 ),
                 padding: const EdgeInsets.fromLTRB(20, 60, 20, 0),
@@ -56,15 +62,59 @@ class HomeScreen extends StatelessWidget {
                     ),
                     Text(
                       DateFormat('EEEE, MMMM d').format(now),
-                      style: AppTextStyles.bodySmall,
+                      style: AppTextStyles.bodySmallOf(context),
                     ),
                   ],
                 ),
               ),
             ),
             actions: [
+              // Theme Toggle
+              Consumer<ThemeProvider>(
+                builder: (context, themeProv, _) {
+                  final isDark = themeProv.isDark;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: GestureDetector(
+                      onTap: () => themeProv.toggle(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: t.bgCard,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: t.borderGold),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isDark
+                                  ? Icons.dark_mode_rounded
+                                  : Icons.light_mode_rounded,
+                              color: AppColors.goldPrimary,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              isDark ? 'Dark' : 'Light',
+                              style: AppTextStyles.labelSmall.copyWith(
+                                color: AppColors.goldPrimary,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              // Grocery
               Padding(
-                padding: const EdgeInsets.only(right: 16),
+                padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
                   onTap: () => Navigator.push(
                     context,
@@ -73,9 +123,9 @@ class HomeScreen extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.bgCard,
+                      color: t.bgCard,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.borderGold),
+                      border: Border.all(color: t.borderGold),
                     ),
                     child: const Icon(
                       Icons.receipt_long_outlined,
@@ -85,61 +135,75 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
-
-              IconButton(
-                icon: const Icon(
-                  Icons.logout_rounded,
-                  color: Color(0xFFD4A843),
-                ),
-                tooltip: 'Sign Out',
-                onPressed: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      backgroundColor: const Color(0xFF1A1A1A),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      title: const Text(
-                        'Sign Out',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      content: const Text(
-                        'Are you sure you want to sign out?',
-                        style: TextStyle(color: Color(0xFF888888)),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text(
-                            'Cancel',
-                            style: TextStyle(color: Color(0xFF888888)),
-                          ),
+              // Sign out
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: GestureDetector(
+                  onTap: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        backgroundColor: t.bgCard,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFD4A843),
-                            foregroundColor: Colors.black,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                        title: Text(
+                          'Sign Out',
+                          style: AppTextStyles.headingSmallOf(context),
+                        ),
+                        content: Text(
+                          'Are you sure you want to sign out?',
+                          style: AppTextStyles.bodySmallOf(context),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: Text(
+                              'Cancel',
+                              style: TextStyle(color: t.textSecondary),
                             ),
                           ),
-                          child: const Text('Sign Out'),
-                        ),
-                      ],
-                    ),
-                  );
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.goldPrimary,
+                              foregroundColor: AppColors.textOnGold,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text('Sign Out'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await ApiService.googleSignOut();
+                      await ApiService.clearToken();
 
-                  if (confirm == true) {
-                    await ApiService.clearToken();
-                    if (context.mounted) {
-                      Navigator.of(
-                        context,
-                      ).pushNamedAndRemoveUntil('/login', (_) => false);
+                      context.read<AppProvider>().clearDevices();
+
+                      if (context.mounted) {
+                        Navigator.of(
+                          context,
+                        ).pushNamedAndRemoveUntil('/login', (_) => false);
+                      }
                     }
-                  }
-                },
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: t.bgCard,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: t.borderGold),
+                    ),
+                    child: const Icon(
+                      Icons.logout_rounded,
+                      color: AppColors.goldPrimary,
+                      size: 20,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -148,50 +212,48 @@ class HomeScreen extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // Pantry Health
                 _PantryHealthCard(score: prov.pantryHealthScore),
                 const SizedBox(height: 20),
-
-                // Stats Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: _StatCard(
-                        icon: Icons.sensors,
-                        label: 'DEVICES',
-                        value:
-                            '${prov.onlineDevicesCount}/${prov.devices.length}',
-                        color: AppColors.info,
-                        suffix: 'online',
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.sensors,
+                          label: 'DEVICES',
+                          value:
+                              '${prov.onlineDevicesCount}/${prov.devices.length}',
+                          color: AppColors.info,
+                          suffix: 'online',
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StatCard(
-                        icon: Icons.warning_amber_rounded,
-                        label: 'LOW STOCK',
-                        value: '${prov.lowStockCount}',
-                        color: prov.lowStockCount > 0
-                            ? AppColors.warning
-                            : AppColors.success,
-                        suffix: 'items',
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.warning_amber_rounded,
+                          label: 'LOW STOCK',
+                          value: '${prov.lowStockCount}',
+                          color: prov.lowStockCount > 0
+                              ? AppColors.warning
+                              : AppColors.success,
+                          suffix: 'items',
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StatCard(
-                        icon: Icons.restaurant_menu,
-                        label: 'RECIPES',
-                        value: '${prov.availableRecipeCount}',
-                        color: AppColors.success,
-                        suffix: 'ready',
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.restaurant_menu,
+                          label: 'RECIPES',
+                          value: '${prov.availableRecipeCount}',
+                          color: AppColors.success,
+                          suffix: 'ready',
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
-
-                // Quick Actions
                 _SectionHeader(title: 'Quick Actions'),
                 const SizedBox(height: 12),
                 SizedBox(
@@ -203,14 +265,24 @@ class HomeScreen extends StatelessWidget {
                         icon: Icons.add_circle_outline,
                         label: 'Add\nDevice',
                         color: AppColors.goldPrimary,
-                        onTap: () => _goTab(context, 1),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const WaitlistScreen(),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       _QuickAction(
                         icon: Icons.inventory_2_outlined,
                         label: 'Pantry\nStock',
                         color: AppColors.info,
-                        onTap: () => _goTab(context, 2),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const InventoryScreen(),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       _QuickAction(
@@ -238,16 +310,21 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-
-                // Device Summary
                 _SectionHeader(
                   title: 'Live Inventory',
                   trailing: 'See All',
-                  onTrailingTap: () => _goTab(context, 1),
+                  onTrailingTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const InventoryScreen(),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 ...prov.devices
-                    .take(4)
+                    .take(3)
                     .map(
                       (d) => Padding(
                         padding: const EdgeInsets.only(bottom: 10),
@@ -255,13 +332,16 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                 const SizedBox(height: 24),
-
-                // Recent Alerts
                 if (prov.alerts.isNotEmpty) ...[
                   _SectionHeader(
                     title: 'Recent Alerts',
                     trailing: 'See All',
-                    onTrailingTap: () => _goTab(context, 4),
+                    onTrailingTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AlertsScreen()),
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
                   ...prov.alerts
@@ -285,22 +365,15 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
-
-  void _goTab(BuildContext context, int tab) {
-    // Use the MainScreen's IndexedStack via inherited state
-    final scaffold = Scaffold.of(context);
-    // Simpler: navigate via callback not available in pure widget tree
-    // For production, use a GlobalKey or NavigationService
-  }
 }
 
-// Pantry Health Card
 class _PantryHealthCard extends StatelessWidget {
   final double score;
   const _PantryHealthCard({required this.score});
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     final pct = (score * 100).round();
     final color = score > 0.7
         ? AppColors.success
@@ -316,13 +389,9 @@ class _PantryHealthCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1C1A12), Color(0xFF1C1C1F)],
-        ),
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.borderGold, width: 0.8),
+        border: Border.all(color: t.borderGold, width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -332,7 +401,7 @@ class _PantryHealthCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppColors.goldDim,
+                  color: t.goldDim,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -348,7 +417,9 @@ class _PantryHealthCard extends StatelessWidget {
                   Text('PANTRY HEALTH', style: AppTextStyles.goldLabel),
                   Text(
                     label,
-                    style: AppTextStyles.headingSmall.copyWith(color: color),
+                    style: AppTextStyles.headingSmallOf(
+                      context,
+                    ).copyWith(color: color),
                   ),
                 ],
               ),
@@ -364,7 +435,7 @@ class _PantryHealthCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: score,
-              backgroundColor: AppColors.bgSurface,
+              backgroundColor: t.bgSurface,
               valueColor: AlwaysStoppedAnimation<Color>(color),
               minHeight: 6,
             ),
@@ -372,7 +443,7 @@ class _PantryHealthCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             '${(score * 100).round()}% of your pantry items are well-stocked',
-            style: AppTextStyles.bodySmall,
+            style: AppTextStyles.bodySmallOf(context),
           ),
         ],
       ),
@@ -380,7 +451,6 @@ class _PantryHealthCard extends StatelessWidget {
   }
 }
 
-// Stat Card
 class _StatCard extends StatelessWidget {
   final IconData icon;
   final String label, value, suffix;
@@ -396,28 +466,31 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderSubtle),
+        border: Border.all(color: t.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, color: color, size: 18),
           const SizedBox(height: 8),
+          Text(value, style: AppTextStyles.weightSmallOf(context)),
           Text(
-            value,
-            style: AppTextStyles.weightSmall.copyWith(
-              color: AppColors.textPrimary,
-            ),
+            label,
+            style: AppTextStyles.labelSmallOf(context),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          Text(label, style: AppTextStyles.labelSmall),
           Text(
             suffix,
-            style: AppTextStyles.bodySmall.copyWith(color: color, fontSize: 11),
+            style: AppTextStyles.bodySmallOf(
+              context,
+            ).copyWith(color: color, fontSize: 11),
           ),
         ],
       ),
@@ -425,7 +498,6 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// Quick Action
 class _QuickAction extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -472,7 +544,6 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
-// Section Header
 class _SectionHeader extends StatelessWidget {
   final String title;
   final String? trailing;
@@ -488,7 +559,7 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(title, style: AppTextStyles.headingMedium),
+        Text(title, style: AppTextStyles.headingMediumOf(context)),
         const Spacer(),
         if (trailing != null)
           GestureDetector(
@@ -505,13 +576,13 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// Device Summary Tile
 class _DeviceSummaryTile extends StatelessWidget {
   final dynamic device;
   const _DeviceSummaryTile({required this.device});
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     final color = AppColors.categoryColor(device.category as String);
     final isLow = device.isLowStock as bool;
     final isOnline = device.isOnline as bool;
@@ -519,10 +590,10 @@ class _DeviceSummaryTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isLow ? AppColors.warningDim : AppColors.borderSubtle,
+          color: isLow ? AppColors.warningDim : t.borderSubtle,
         ),
       ),
       child: Row(
@@ -533,7 +604,7 @@ class _DeviceSummaryTile extends StatelessWidget {
             decoration: BoxDecoration(
               color: isOnline
                   ? (isLow ? AppColors.warning : color)
-                  : AppColors.textMuted,
+                  : t.textMuted,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -544,10 +615,13 @@ class _DeviceSummaryTile extends StatelessWidget {
               children: [
                 Text(
                   device.name as String,
-                  style: AppTextStyles.headingSmall,
+                  style: AppTextStyles.headingSmallOf(context),
                   overflow: TextOverflow.ellipsis,
                 ),
-                Text(device.category as String, style: AppTextStyles.bodySmall),
+                Text(
+                  device.category as String,
+                  style: AppTextStyles.bodySmallOf(context),
+                ),
               ],
             ),
           ),
@@ -556,7 +630,7 @@ class _DeviceSummaryTile extends StatelessWidget {
             children: [
               Text(
                 device.weightFormatted as String,
-                style: AppTextStyles.weightSmall,
+                style: AppTextStyles.weightSmallOf(context),
               ),
               if (isLow)
                 Text(
@@ -568,9 +642,7 @@ class _DeviceSummaryTile extends StatelessWidget {
               else if (!isOnline)
                 Text(
                   'OFFLINE',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: AppColors.textMuted,
-                  ),
+                  style: AppTextStyles.labelSmall.copyWith(color: t.textMuted),
                 ),
             ],
           ),
@@ -580,7 +652,6 @@ class _DeviceSummaryTile extends StatelessWidget {
   }
 }
 
-// Alert Tile
 class _AlertTile extends StatelessWidget {
   final dynamic alert;
   final VoidCallback onTap;
@@ -588,18 +659,19 @@ class _AlertTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    final isRead = alert.isRead as bool;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: (alert.isRead as bool)
-              ? AppColors.bgCard
-              : AppColors.warningDim,
+          color: isRead ? t.bgCard : t.warningDim,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: (alert.isRead as bool)
-                ? AppColors.borderSubtle
+            color: isRead
+                ? t.borderSubtle
                 : AppColors.warning.withValues(alpha: 0.3),
           ),
         ),
@@ -607,9 +679,7 @@ class _AlertTile extends StatelessWidget {
           children: [
             Icon(
               Icons.warning_amber_rounded,
-              color: (alert.isRead as bool)
-                  ? AppColors.textMuted
-                  : AppColors.warning,
+              color: isRead ? t.textMuted : AppColors.warning,
               size: 18,
             ),
             const SizedBox(width: 12),
@@ -619,22 +689,20 @@ class _AlertTile extends StatelessWidget {
                 children: [
                   Text(
                     alert.title as String,
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      fontWeight: (alert.isRead as bool)
-                          ? FontWeight.normal
-                          : FontWeight.w600,
+                    style: AppTextStyles.bodyMediumOf(context).copyWith(
+                      fontWeight: isRead ? FontWeight.normal : FontWeight.w600,
                     ),
                   ),
                   Text(
                     alert.message as String,
-                    style: AppTextStyles.bodySmall,
+                    style: AppTextStyles.bodySmallOf(context),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-            if (!(alert.isRead as bool))
+            if (!isRead)
               Container(
                 width: 8,
                 height: 8,

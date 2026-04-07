@@ -1,8 +1,13 @@
 enum AlertType {
   lowStock,
+  outOfStock,
   deviceOffline,
+  deviceOnline,
   deviceLowBattery,
+  sensorPlacement,
   refillReminder,
+  receiptPending,
+  receiptProcessed,
   info,
 }
 
@@ -15,6 +20,7 @@ class AppAlert {
   bool isRead;
   final String? deviceId;
   final String? itemName;
+  final Map<String, String>? data;
 
   AppAlert({
     required this.id,
@@ -25,18 +31,29 @@ class AppAlert {
     this.isRead = false,
     this.deviceId,
     this.itemName,
+    this.data,
   });
 
   String get typeLabel {
     switch (type) {
       case AlertType.lowStock:
         return 'LOW STOCK';
+      case AlertType.outOfStock:
+        return 'OUT OF STOCK';
       case AlertType.deviceOffline:
-        return 'DEVICE OFFLINE';
+        return 'OFFLINE';
+      case AlertType.deviceOnline:
+        return 'BACK ONLINE';
       case AlertType.deviceLowBattery:
         return 'LOW BATTERY';
+      case AlertType.sensorPlacement:
+        return 'SCALE EVENT';
       case AlertType.refillReminder:
-        return 'REFILL';
+        return 'REMINDER';
+      case AlertType.receiptPending:
+        return 'RECEIPT';
+      case AlertType.receiptProcessed:
+        return 'RECEIPT';
       case AlertType.info:
         return 'INFO';
     }

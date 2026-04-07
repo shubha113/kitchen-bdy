@@ -1,9 +1,11 @@
+import 'package:app/main.dart';
 import 'package:flutter/material.dart';
-import 'package:kitchen_bdy/main.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_text_styles.dart';
 import '../../constants/app_constants.dart';
+import '../../models/alert.dart';
 import '../../models/device.dart';
 import '../../models/manual_inventory_item.dart';
 import '../../providers/app_provider.dart';
@@ -20,11 +22,10 @@ class _InventoryScreenState extends State<InventoryScreen>
   String _selectedCategory = 'All';
   String _sortBy = 'Name';
   bool _showLowOnly = false;
-
   List<ManualInventoryItem> _manualItems = [];
   bool _loadingManual = true;
-
   late TabController _tabController;
+  final Set<int> _checkedLowStockIds = {};
 
   @override
   void didChangeDependencies() {
@@ -33,9 +34,7 @@ class _InventoryScreenState extends State<InventoryScreen>
   }
 
   @override
-  void didPopNext() {
-    _loadManual();
-  }
+  void didPopNext() => _loadManual();
 
   @override
   void dispose() {
@@ -54,16 +53,52 @@ class _InventoryScreenState extends State<InventoryScreen>
   Future<void> _loadManual() async {
     setState(() => _loadingManual = true);
     final items = await ManualInventoryService.getUserInventory();
-    if (mounted)
-      setState(() {
-        _manualItems = items;
-        _loadingManual = false;
-      });
+    if (!mounted) return;
+    setState(() {
+      _manualItems = items;
+      _loadingManual = false;
+
+      final validIds = items.map((e) => e.id).toSet();
+      _checkedLowStockIds.removeWhere((id) => !validIds.contains(id));
+    });
+    // After loading, surface any due reminders as alerts
+    _checkAndInjectReminderAlerts(items);
   }
+
+  Future<void> _checkAndInjectReminderAlerts(
+    List<ManualInventoryItem> items,
+  ) async {
+    final dueItems = await ManualInventoryService.getDueReminders();
+    if (!mounted || dueItems.isEmpty) return;
+
+    final prov = context.read<AppProvider>();
+    for (final item in dueItems) {
+      final alert = AppAlert(
+        id: 'reminder_${item.id}_${item.reminderDate!.millisecondsSinceEpoch}',
+        type: AlertType.refillReminder,
+        title: '${item.itemName} — Refill Reminder',
+        message:
+            'You set a reminder to check your ${item.itemName} stock. '
+            'Currently ${item.remainingFormatted} remaining.',
+        timestamp: item.reminderDate!,
+        itemName: item.itemName,
+      );
+      prov.addAlert(alert);
+      // Mark fired so it doesn't resurface on next load
+      ManualInventoryService.markReminderFired(item.id);
+    }
+  }
+
+  List<ManualInventoryItem> get _lowStockItems =>
+      _manualItems
+          .where((m) => m.isLowStock && !(m.isFilledByUser ?? false))
+          .toList()
+        ..sort((a, b) => a.itemName.compareTo(b.itemName));
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
+    final t = AppTheme.of(context);
 
     var sensorItems = prov.devices.toList();
     if (_showLowOnly)
@@ -90,21 +125,28 @@ class _InventoryScreenState extends State<InventoryScreen>
     if (_sortBy == 'Name')
       manualFiltered.sort((a, b) => a.itemName.compareTo(b.itemName));
 
-    final linkedSensorIds = _manualItems
-        .where((m) => m.linkedSensorId != null)
-        .map((m) => m.linkedSensorId!)
-        .toSet();
-    final unlinkedSensors = sensorItems
-        .where((d) => !linkedSensorIds.contains(d.id))
-        .toList();
+    final lowItems = _lowStockItems;
 
     return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
+      backgroundColor: t.bgPrimary,
       appBar: AppBar(
-        backgroundColor: AppColors.bgPrimary,
+        backgroundColor: t.bgPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
-        title: Text('Pantry Inventory', style: AppTextStyles.headingLarge),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: Icon(
+                  Icons.arrow_back_ios,
+                  color: t.textSecondary,
+                  size: 18,
+                ),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
+        title: Text(
+          'Pantry Inventory',
+          style: AppTextStyles.headingLargeOf(context),
+        ),
         actions: [
           IconButton(
             icon: const Icon(
@@ -127,18 +169,52 @@ class _InventoryScreenState extends State<InventoryScreen>
                 controller: _tabController,
                 indicatorColor: AppColors.goldPrimary,
                 labelColor: AppColors.goldPrimary,
-                unselectedLabelColor: AppColors.textSecondary,
+                unselectedLabelColor: t.textSecondary,
                 labelStyle: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.bold,
                 ),
                 tabs: [
-                  Tab(
-                    text:
-                        'All (${unlinkedSensors.length + manualFiltered.length})',
-                  ),
                   Tab(text: 'Live Scale (${sensorItems.length})'),
                   Tab(text: 'My Stock (${manualFiltered.length})'),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Low Stock',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: lowItems.isEmpty
+                                ? t.textSecondary
+                                : AppColors.warning,
+                          ),
+                        ),
+                        if (lowItems.isNotEmpty) ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.warning,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${lowItems.length}',
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -148,72 +224,234 @@ class _InventoryScreenState extends State<InventoryScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildAllTab(unlinkedSensors, manualFiltered),
           _buildSensorTab(sensorItems),
           _buildManualTab(manualFiltered),
+          _buildLowStockTab(lowItems),
         ],
       ),
     );
   }
 
-  Widget _buildAllTab(
-    List<KitchenDevice> sensors,
-    List<ManualInventoryItem> manual,
-  ) {
-    if (sensors.isEmpty && manual.isEmpty)
-      return _EmptyState(category: _selectedCategory, lowOnly: _showLowOnly);
-    return RefreshIndicator(
-      color: AppColors.goldPrimary,
-      onRefresh: _loadManual,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-        children: [
-          _SortFilterBar(
-            sortBy: _sortBy,
-            showLowOnly: _showLowOnly,
-            onSort: () => _showSortMenu(context),
-            onToggleLow: () => setState(() => _showLowOnly = !_showLowOnly),
-            count: sensors.length + manual.length,
-          ),
-          const SizedBox(height: 12),
-          if (sensors.isNotEmpty) ...[
-            _SectionHeader(
-              icon: Icons.sensors,
-              label: 'Live Scale',
-              color: AppColors.success,
-            ),
-            const SizedBox(height: 8),
-            ...sensors.map(
-              (d) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _SensorCard(device: d),
+  // Low Stock Tab
+  Widget _buildLowStockTab(List<ManualInventoryItem> items) {
+    final t = AppTheme.of(context);
+    if (_loadingManual)
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.goldPrimary),
+      );
+
+    if (items.isEmpty)
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.check_circle_outline,
+                color: AppColors.success,
+                size: 56,
               ),
+              const SizedBox(height: 16),
+              Text(
+                'All stocked up!',
+                style: AppTextStyles.headingMediumOf(
+                  context,
+                ).copyWith(color: AppColors.success),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No items are below their threshold.',
+                style: AppTextStyles.bodySmallOf(context),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+    final checkedCount = _checkedLowStockIds.length;
+
+    return Stack(
+      children: [
+        RefreshIndicator(
+          color: AppColors.goldPrimary,
+          onRefresh: _loadManual,
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              checkedCount > 0 ? 120 : 100,
             ),
-            const SizedBox(height: 16),
-          ],
-          if (manual.isNotEmpty) ...[
-            _SectionHeader(
-              icon: Icons.inventory_2_outlined,
-              label: 'My Stock',
-              color: AppColors.goldPrimary,
-            ),
-            const SizedBox(height: 8),
-            ...manual.map(
-              (m) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ManualCard(
-                  item: m,
-                  onUpdated: _loadManual,
-                  onDeleted: _loadManual,
+            children: [
+              GestureDetector(
+                onTap: () => _shareAll(items),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: t.bgCard,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.goldPrimary.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.share_outlined,
+                        color: AppColors.goldPrimary,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Share Shopping List (${items.length} items)',
+                        style: AppTextStyles.labelMedium.copyWith(
+                          color: AppColors.goldPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              ...items.map(
+                (m) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _LowStockCard(
+                    item: m,
+                    isChecked: _checkedLowStockIds.contains(m.id),
+                    onCheckChanged: (checked) {
+                      setState(() {
+                        if (checked) {
+                          _checkedLowStockIds.add(m.id);
+                        } else {
+                          _checkedLowStockIds.remove(m.id);
+                        }
+                      });
+                    },
+                    onShare: () => _shareOne(m),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (checkedCount > 0)
+          Positioned(
+            bottom: 24,
+            right: 16,
+            child: GestureDetector(
+              onTap: _deleteCheckedItems,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.success,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.success.withValues(alpha: 0.4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.check_circle_outline,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Mark $checkedCount item${checkedCount > 1 ? 's' : ''} restocked',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
-        ],
-      ),
+          ),
+      ],
     );
   }
 
+  // Share helpers
+  void _shareAll(List<ManualInventoryItem> items) {
+    final buf = StringBuffer();
+    buf.writeln('🛒 Shopping List — ${items.length} item(s) needed:\n');
+    for (final m in items) {
+      final thr = m.threshold != null;
+      buf.writeln('• ${m.itemName} — ${m.remainingFormatted} left');
+    }
+    buf.writeln('\nSent from KitchenBDY 🍽️');
+    Share.share(buf.toString(), subject: 'Shopping List');
+  }
+
+  void _shareOne(ManualInventoryItem m) {
+    final thr = m.threshold != null;
+    Share.share(
+      '🛒 ${m.itemName} — only ${m.remainingFormatted} left. $thr\n\nSent from KitchenBDY 🍽️',
+      subject: '${m.itemName} — Low Stock',
+    );
+  }
+
+  Future<void> _deleteCheckedItems() async {
+    if (_checkedLowStockIds.isEmpty) return;
+    final ids = Set<int>.from(_checkedLowStockIds);
+    final count = ids.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: AppTheme.of(context).bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Mark $count item${count > 1 ? 's' : ''} as restocked?',
+          style: AppTextStyles.headingSmallOf(context),
+        ),
+        content: Text(
+          'This will remove $count item${count > 1 ? 's' : ''} from Low Stock. '
+          'They\'ll stay in My Stock tab.',
+          style: AppTextStyles.bodySmallOf(context),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dCtx, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppTheme.of(context).textSecondary),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            onPressed: () => Navigator.pop(dCtx, true),
+            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    // Just mark as filled
+    await Future.wait(
+      ids.map((id) => ManualInventoryService.markFilled(id, true)),
+    );
+    setState(() => _checkedLowStockIds.clear());
+    _loadManual();
+  }
+
+  // Sensor Tab
   Widget _buildSensorTab(List<KitchenDevice> items) {
     if (items.isEmpty)
       return _EmptyState(category: _selectedCategory, lowOnly: _showLowOnly);
@@ -238,7 +476,9 @@ class _InventoryScreenState extends State<InventoryScreen>
     );
   }
 
+  // Manual Tab
   Widget _buildManualTab(List<ManualInventoryItem> items) {
+    final t = AppTheme.of(context);
     if (_loadingManual)
       return const Center(
         child: CircularProgressIndicator(color: AppColors.goldPrimary),
@@ -248,22 +488,18 @@ class _InventoryScreenState extends State<InventoryScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.inventory_2_outlined,
-              color: AppColors.textMuted,
-              size: 48,
-            ),
+            Icon(Icons.inventory_2_outlined, color: t.textMuted, size: 48),
             const SizedBox(height: 16),
             Text(
               'No manual items yet',
-              style: AppTextStyles.headingMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
+              style: AppTextStyles.headingMediumOf(
+                context,
+              ).copyWith(color: t.textSecondary),
             ),
             const SizedBox(height: 8),
             Text(
               'Tap + Add Item to start tracking',
-              style: AppTextStyles.bodySmall,
+              style: AppTextStyles.bodySmallOf(context),
               textAlign: TextAlign.center,
             ),
           ],
@@ -290,19 +526,11 @@ class _InventoryScreenState extends State<InventoryScreen>
     );
   }
 
-  void _showAddItemSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _AddItemSheet(onSaved: _loadManual),
-    );
-  }
-
   void _showSortMenu(BuildContext context) {
+    final t = AppTheme.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.bgCard,
+      backgroundColor: t.bgCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -312,11 +540,11 @@ class _InventoryScreenState extends State<InventoryScreen>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sort By', style: AppTextStyles.headingMedium),
+            Text('Sort By', style: AppTextStyles.headingMediumOf(context)),
             const SizedBox(height: 16),
             ...['Name', 'Weight', 'Status'].map(
               (s) => ListTile(
-                title: Text(s, style: AppTextStyles.bodyMedium),
+                title: Text(s, style: AppTextStyles.bodyMediumOf(context)),
                 trailing: _sortBy == s
                     ? const Icon(Icons.check, color: AppColors.goldPrimary)
                     : null,
@@ -328,6 +556,205 @@ class _InventoryScreenState extends State<InventoryScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// LOW STOCK CARD
+class _LowStockCard extends StatelessWidget {
+  final ManualInventoryItem item;
+  final bool isChecked;
+  final void Function(bool) onCheckChanged;
+  final VoidCallback onShare;
+
+  const _LowStockCard({
+    required this.item,
+    required this.isChecked,
+    required this.onCheckChanged,
+    required this.onShare,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    final catColor = AppColors.categoryColor(item.category);
+    final isOut = item.isOutOfStock;
+    final pct = item.totalPurchased > 0
+        ? (item.packsRemaining / item.totalPurchased).clamp(0.0, 1.0)
+        : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: t.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isChecked
+              ? AppColors.success.withValues(alpha: 0.5)
+              : isOut
+              ? AppColors.error.withValues(alpha: 0.5)
+              : AppColors.warning.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => onCheckChanged(!isChecked),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: isChecked ? AppColors.success : Colors.transparent,
+                    border: Border.all(
+                      color: isChecked ? AppColors.success : AppColors.warning,
+                      width: 2,
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: isChecked
+                      ? const Icon(Icons.check, size: 14, color: Colors.white)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.itemName,
+                      style: AppTextStyles.headingSmallOf(context).copyWith(
+                        decoration: isChecked
+                            ? TextDecoration.lineThrough
+                            : null,
+                        decorationColor: t.textSecondary,
+                        color: isChecked ? t.textSecondary : t.textPrimary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      item.category,
+                      style: AppTextStyles.bodySmallOf(
+                        context,
+                      ).copyWith(color: catColor),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isChecked
+                      ? AppColors.success.withValues(alpha: 0.1)
+                      : isOut
+                      ? t.errorDim
+                      : t.warningDim,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  item.remainingFormatted,
+                  style: TextStyle(
+                    color: isChecked
+                        ? AppColors.success
+                        : isOut
+                        ? AppColors.error
+                        : AppColors.warning,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onShare,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: t.bgSurface,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.share_outlined,
+                    size: 15,
+                    color: t.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: pct,
+              backgroundColor: t.bgSurface,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isChecked
+                    ? AppColors.success
+                    : isOut
+                    ? AppColors.error
+                    : AppColors.warning,
+              ),
+              minHeight: 4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (item.threshold != null) ...[
+                Icon(
+                  Icons.warning_amber_outlined,
+                  size: 12,
+                  color: isChecked ? AppColors.success : AppColors.warning,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  isChecked
+                      ? 'Marked as restocked'
+                      : 'Below ${item.threshold!.toStringAsFixed(item.threshold! % 1 == 0 ? 0 : 1)} ${item.unit}',
+                  style: AppTextStyles.bodySmallOf(context).copyWith(
+                    color: isChecked ? AppColors.success : AppColors.warning,
+                  ),
+                ),
+              ],
+              const Spacer(),
+              if (isChecked)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        size: 10,
+                        color: AppColors.success,
+                      ),
+                      SizedBox(width: 3),
+                      Text(
+                        'Restocked',
+                        style: TextStyle(
+                          color: AppColors.success,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -347,7 +774,6 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   final _packsCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _thresholdCtrl = TextEditingController();
-
   String _unit = 'kg';
   String _category = 'Grains';
   bool _saving = false;
@@ -366,17 +792,15 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     if (_nameCtrl.text.trim().isEmpty || _quantityCtrl.text.trim().isEmpty)
       return;
     setState(() => _saving = true);
-
     await ManualInventoryService.addPurchase(
       itemName: _nameCtrl.text.trim(),
       category: _category,
       quantity: double.tryParse(_quantityCtrl.text) ?? 0,
       unit: _unit,
       packsCount: double.tryParse(_packsCtrl.text),
-      pricePerUnit: double.tryParse(_priceCtrl.text),
+      totalPrice: double.tryParse(_priceCtrl.text),
       threshold: double.tryParse(_thresholdCtrl.text),
     );
-
     if (mounted) {
       Navigator.pop(context);
       widget.onSaved();
@@ -385,6 +809,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     final screenHeight = MediaQuery.of(context).size.height;
 
@@ -397,9 +822,9 @@ class _AddItemSheetState extends State<_AddItemSheet> {
           maxHeight: screenHeight * 0.88,
           minHeight: 200,
         ),
-        decoration: const BoxDecoration(
-          color: Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: t.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -410,13 +835,12 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3A3A3A),
+                  color: t.borderMedium,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
             const SizedBox(height: 16),
-
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
@@ -424,7 +848,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.goldDim,
+                      color: t.goldDim,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(
@@ -436,13 +860,12 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                   const SizedBox(width: 12),
                   Text(
                     'Add Inventory Item',
-                    style: AppTextStyles.headingMedium,
+                    style: AppTextStyles.headingMediumOf(context),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -456,7 +879,6 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       Icons.label_outline,
                     ),
                     const SizedBox(height: 12),
-
                     Row(
                       children: [
                         Expanded(
@@ -473,13 +895,18 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                           width: 110,
                           child: DropdownButtonFormField<String>(
                             value: _unit,
-                            dropdownColor: const Color(0xFF252525),
+                            dropdownColor: t.bgCardElevated,
                             isExpanded: true,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: t.textPrimary,
                               fontSize: 14,
                             ),
-                            decoration: _dec('Unit', Icons.straighten),
+                            decoration: _dec(
+                              context,
+                              t,
+                              'Unit',
+                              Icons.straighten,
+                            ),
                             items: AppConstants.units
                                 .map(
                                   (u) => DropdownMenuItem(
@@ -494,25 +921,19 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       ],
                     ),
                     const SizedBox(height: 12),
-
                     _SheetField(
                       _priceCtrl,
-                      'Price per $_unit (optional, ₹)',
-                      'e.g. 120',
+                      'Total price paid (optional, ₹)',
+                      'e.g. 240 for 2kg bag',
                       Icons.currency_rupee,
                       numeric: true,
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "Leave blank if you don't want to track spending",
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 11,
-                      ),
+                      "Total amount paid — we'll calculate price per $_unit automatically",
+                      style: TextStyle(color: t.textMuted, fontSize: 11),
                     ),
                     const SizedBox(height: 12),
-
-                    // Threshold
                     _SheetField(
                       _thresholdCtrl,
                       'Low stock alert below (optional, $_unit)',
@@ -522,14 +943,10 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'We\'ll warn you when stock drops below this amount',
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 11,
-                      ),
+                      "We'll warn you when stock drops below this amount",
+                      style: TextStyle(color: t.textMuted, fontSize: 11),
                     ),
                     const SizedBox(height: 12),
-
                     _SheetField(
                       _packsCtrl,
                       'No. of Packs (optional)',
@@ -538,13 +955,17 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       numeric: true,
                     ),
                     const SizedBox(height: 12),
-
                     DropdownButtonFormField<String>(
                       value: _category,
-                      dropdownColor: const Color(0xFF252525),
+                      dropdownColor: t.bgCardElevated,
                       isExpanded: true,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                      decoration: _dec('Category', Icons.category_outlined),
+                      style: TextStyle(color: t.textPrimary, fontSize: 14),
+                      decoration: _dec(
+                        context,
+                        t,
+                        'Category',
+                        Icons.category_outlined,
+                      ),
                       items: AppConstants.categories
                           .where((c) => c != 'All')
                           .map(
@@ -558,7 +979,6 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                 ),
               ),
             ),
-
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               child: SizedBox(
@@ -567,7 +987,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.goldPrimary,
-                    foregroundColor: Colors.black,
+                    foregroundColor: AppColors.textOnGold,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -598,15 +1018,20 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     );
   }
 
-  static InputDecoration _dec(String label, IconData icon) => InputDecoration(
+  static InputDecoration _dec(
+    BuildContext context,
+    AppTheme t,
+    String label,
+    IconData icon,
+  ) => InputDecoration(
     labelText: label,
-    labelStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
-    prefixIcon: Icon(icon, color: const Color(0xFF888888), size: 18),
+    labelStyle: TextStyle(color: t.textSecondary, fontSize: 12),
+    prefixIcon: Icon(icon, color: t.textSecondary, size: 18),
     filled: true,
-    fillColor: const Color(0xFF111111),
+    fillColor: t.bgSurface,
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+      borderSide: BorderSide(color: t.borderSubtle),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -631,33 +1056,43 @@ class _SheetField extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => TextField(
-    controller: ctrl,
-    keyboardType: numeric
-        ? const TextInputType.numberWithOptions(decimal: true)
-        : TextInputType.text,
-    style: const TextStyle(color: Colors.white, fontSize: 14),
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF555555), fontSize: 13),
-      labelStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
-      prefixIcon: Icon(icon, color: const Color(0xFF888888), size: 18),
-      filled: true,
-      fillColor: const Color(0xFF111111),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return TextField(
+      controller: ctrl,
+      keyboardType: numeric
+          ? const TextInputType.numberWithOptions(decimal: true)
+          : TextInputType.text,
+      style: TextStyle(color: t.textPrimary, fontSize: 14),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintStyle: TextStyle(color: t.textMuted, fontSize: 13),
+        labelStyle: TextStyle(color: t.textSecondary, fontSize: 12),
+        prefixIcon: Icon(icon, color: t.textSecondary, size: 18),
+        filled: true,
+        fillColor: t.bgSurface,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: t.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(
+            color: AppColors.goldPrimary,
+            width: 1.5,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 14,
+        ),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppColors.goldPrimary, width: 1.5),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-    ),
-  );
+    );
+  }
 }
 
+// UPDATE STOCK SHEET
 class _UpdateStockSheet extends StatefulWidget {
   final ManualInventoryItem item;
   final VoidCallback onUpdated;
@@ -697,14 +1132,15 @@ class _UpdateStockSheetState extends State<_UpdateStockSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: t.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         child: Column(
@@ -716,7 +1152,7 @@ class _UpdateStockSheetState extends State<_UpdateStockSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3A3A3A),
+                  color: t.borderMedium,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -724,12 +1160,12 @@ class _UpdateStockSheetState extends State<_UpdateStockSheet> {
             const SizedBox(height: 20),
             Text(
               'Update Stock — ${widget.item.itemName}',
-              style: AppTextStyles.headingMedium,
+              style: AppTextStyles.headingMediumOf(context),
             ),
             const SizedBox(height: 6),
             Text(
               'How much ${widget.item.unit} do you currently have?',
-              style: AppTextStyles.bodySmall,
+              style: AppTextStyles.bodySmallOf(context),
             ),
             const SizedBox(height: 20),
             TextField(
@@ -738,18 +1174,18 @@ class _UpdateStockSheetState extends State<_UpdateStockSheet> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: t.textPrimary,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
               decoration: InputDecoration(
                 labelText: 'Remaining (${widget.item.unit})',
-                labelStyle: const TextStyle(color: Color(0xFF888888)),
+                labelStyle: TextStyle(color: t.textSecondary),
                 suffixText: widget.item.unit,
                 suffixStyle: const TextStyle(color: AppColors.goldPrimary),
                 filled: true,
-                fillColor: const Color(0xFF111111),
+                fillColor: t.bgSurface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -770,7 +1206,7 @@ class _UpdateStockSheetState extends State<_UpdateStockSheet> {
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.goldPrimary,
-                  foregroundColor: Colors.black,
+                  foregroundColor: AppColors.textOnGold,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -801,6 +1237,7 @@ class _UpdateStockSheetState extends State<_UpdateStockSheet> {
   }
 }
 
+// SET THRESHOLD SHEET
 class _SetThresholdSheet extends StatefulWidget {
   final ManualInventoryItem item;
   final VoidCallback onUpdated;
@@ -817,12 +1254,12 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
   @override
   void initState() {
     super.initState();
-    _unit = widget.item.unit;
-    final t = widget.item.threshold;
+    final th = widget.item.threshold;
+    _unit = widget.item.thresholdUnit;
     _ctrl = TextEditingController(
-      text: t == null
+      text: th == null
           ? ''
-          : (t % 1 == 0 ? t.toInt().toString() : t.toStringAsFixed(1)),
+          : (th % 1 == 0 ? th.toInt().toString() : th.toStringAsFixed(1)),
     );
   }
 
@@ -835,7 +1272,11 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
   Future<void> _save() async {
     final val = double.tryParse(_ctrl.text);
     setState(() => _saving = true);
-    await ManualInventoryService.updateThreshold(widget.item.id, val);
+    await ManualInventoryService.updateThreshold(
+      widget.item.id,
+      val,
+      thresholdUnit: _unit,
+    );
     if (mounted) {
       Navigator.pop(context);
       widget.onUpdated();
@@ -844,14 +1285,16 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    final unit = widget.item.unit;
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: t.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         child: Column(
@@ -863,7 +1306,7 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3A3A3A),
+                  color: t.borderMedium,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -874,7 +1317,7 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.warningDim,
+                    color: t.warningDim,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
@@ -890,11 +1333,11 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
                     children: [
                       Text(
                         'Low Stock Alert',
-                        style: AppTextStyles.headingMedium,
+                        style: AppTextStyles.headingMediumOf(context),
                       ),
                       Text(
-                        '${widget.item.itemName}',
-                        style: AppTextStyles.bodySmall,
+                        widget.item.itemName,
+                        style: AppTextStyles.bodySmallOf(context),
                       ),
                     ],
                   ),
@@ -903,13 +1346,12 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Warn me when stock drops below this amount. Leave blank to remove the alert.',
-              style: AppTextStyles.bodySmall.copyWith(
-                color: AppColors.textSecondary,
-              ),
+              'Warn me when stock drops below this amount in $unit. Leave blank to remove the alert.',
+              style: AppTextStyles.bodySmallOf(
+                context,
+              ).copyWith(color: t.textSecondary),
             ),
             const SizedBox(height: 20),
-
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -920,18 +1362,18 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: t.textPrimary,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                     decoration: InputDecoration(
                       labelText: 'Alert below',
-                      labelStyle: const TextStyle(color: Color(0xFF888888)),
-                      hintText: 'e.g. 0.5',
-                      hintStyle: const TextStyle(color: Color(0xFF555555)),
+                      labelStyle: TextStyle(color: t.textSecondary),
+                      hintText: 'e.g. 200',
+                      hintStyle: TextStyle(color: t.textMuted),
                       filled: true,
-                      fillColor: const Color(0xFF111111),
+                      fillColor: t.bgSurface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -947,24 +1389,23 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // Unit dropdown
                 SizedBox(
-                  width: 110,
+                  width: 100,
                   child: DropdownButtonFormField<String>(
                     value: _unit,
-                    dropdownColor: const Color(0xFF252525),
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    dropdownColor: t.bgCardElevated,
+                    style: TextStyle(color: t.textPrimary, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Unit',
-                      labelStyle: const TextStyle(
-                        color: Color(0xFF888888),
+                      labelStyle: TextStyle(
+                        color: t.textSecondary,
                         fontSize: 12,
                       ),
                       filled: true,
-                      fillColor: const Color(0xFF111111),
+                      fillColor: t.bgSurface,
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                        borderSide: BorderSide(color: t.borderSubtle),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -986,7 +1427,6 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
                 ),
               ],
             ),
-
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
@@ -1025,6 +1465,470 @@ class _SetThresholdSheetState extends State<_SetThresholdSheet> {
   }
 }
 
+// SET REMINDER SHEET
+class _SetReminderSheet extends StatefulWidget {
+  final ManualInventoryItem item;
+  final VoidCallback onUpdated;
+  const _SetReminderSheet({required this.item, required this.onUpdated});
+  @override
+  State<_SetReminderSheet> createState() => _SetReminderSheetState();
+}
+
+class _SetReminderSheetState extends State<_SetReminderSheet> {
+  DateTime? _selectedDate;
+  bool _isRecurring = false;
+  String? _repeatType;
+  bool _saving = false;
+
+  // Preset options: label → days from now (null = open date picker)
+  static const _presets = <String, int?>{
+    'Tomorrow': 1,
+    'In 3 days': 3,
+    'In 1 week': 7,
+    'In 2 weeks': 14,
+    'In 1 month': 30,
+    'Custom date': null,
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDate = widget.item.reminderDate;
+  }
+
+  /// Returns a Date at noon on the given day offset so the reminder fires
+  /// during waking hours regardless of timezone.
+  DateTime _daysFromNow(int days) {
+    final base = DateTime.now().add(Duration(days: days));
+    return DateTime(base.year, base.month, base.day, 12, 0);
+  }
+
+  Future<void> _pickCustomDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2100),
+
+      // 👇 ADD HERE
+      builder: (ctx, child) {
+        final t = AppTheme.of(ctx);
+
+        return Theme(
+          data: Theme.of(ctx).copyWith(
+            colorScheme: Theme.of(ctx).colorScheme.copyWith(
+              primary: AppColors.goldPrimary,
+              surface: t.bgCard,
+              onSurface: t.textPrimary,
+            ),
+            dialogBackgroundColor: t.bgCard,
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDate = DateTime(picked.year, picked.month, picked.day, 12, 0);
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+
+    await ManualInventoryService.setReminder(
+      widget.item.id,
+      _selectedDate,
+      reminderRecurring: _isRecurring,
+      reminderRepeatType: _repeatType,
+    );
+
+    if (mounted) {
+      setState(() => _saving = false);
+      Navigator.pop(context);
+      widget.onUpdated();
+    }
+  }
+
+  Future<void> _clearReminder() async {
+    setState(() => _saving = true);
+    await ManualInventoryService.setReminder(widget.item.id, null);
+    if (mounted) {
+      Navigator.pop(context);
+      widget.onUpdated();
+    }
+  }
+
+  String _formatDate(DateTime d) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    final hasExisting = widget.item.reminderDate != null;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom:
+              MediaQuery.of(context).viewInsets.bottom +
+              MediaQuery.of(context).padding.bottom,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: t.bgCard,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: t.borderMedium,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.alarm_outlined,
+                      color: AppColors.info,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Set Reminder',
+                          style: AppTextStyles.headingMediumOf(context),
+                        ),
+                        Text(
+                          widget.item.itemName,
+                          style: AppTextStyles.bodySmallOf(context),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Clear button if reminder already set
+                  if (hasExisting && !_saving)
+                    GestureDetector(
+                      onTap: _clearReminder,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: AppColors.error.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: const Text(
+                          'Clear',
+                          style: TextStyle(
+                            color: AppColors.error,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                "We'll remind you to check or refill this item on the selected day.",
+                style: AppTextStyles.bodySmallOf(
+                  context,
+                ).copyWith(color: t.textSecondary),
+              ),
+
+              // Current reminder info
+              if (hasExisting) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.info.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.alarm_on,
+                        size: 14,
+                        color: AppColors.info,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.item.reminderFired
+                            ? 'Last reminder: ${_formatDate(widget.item.reminderDate!)}'
+                            : 'Current reminder: ${_formatDate(widget.item.reminderDate!)}',
+                        style: TextStyle(color: AppColors.info, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              // Preset chips — using Wrap so they never overflow
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _presets.entries.map((entry) {
+                  final label = entry.key;
+                  final days = entry.value;
+
+                  // Determine if this preset is currently selected
+                  final bool isSelected = () {
+                    if (_selectedDate == null) return false;
+                    if (days == null) {
+                      // "Custom date" is selected when no preset matches
+                      final anyPresetMatch = _presets.values
+                          .whereType<int>()
+                          .any(
+                            (d) => _isSameDay(_selectedDate!, _daysFromNow(d)),
+                          );
+                      return !anyPresetMatch;
+                    }
+                    return _isSameDay(_selectedDate!, _daysFromNow(days));
+                  }();
+
+                  return GestureDetector(
+                    onTap: () async {
+                      if (days == null) {
+                        await _pickCustomDate();
+                      } else {
+                        setState(() => _selectedDate = _daysFromNow(days));
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.info.withValues(alpha: 0.15)
+                            : t.bgSurface,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isSelected ? AppColors.info : t.borderSubtle,
+                          width: isSelected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (days == null)
+                            Icon(
+                              Icons.calendar_today_outlined,
+                              size: 12,
+                              color: isSelected
+                                  ? AppColors.info
+                                  : t.textSecondary,
+                            ),
+                          if (days == null) const SizedBox(width: 4),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? AppColors.info
+                                  : t.textSecondary,
+                              fontSize: 13,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+
+              // After the preset chips Wrap, add:
+              const SizedBox(height: 16),
+              Text(
+                'Repeat?',
+                style: AppTextStyles.bodySmallOf(
+                  context,
+                ).copyWith(color: t.textSecondary),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // No repeat
+                  _RepeatChip(
+                    label: 'Once',
+                    icon: Icons.looks_one_outlined,
+                    selected: !_isRecurring,
+                    onTap: () => setState(() {
+                      _isRecurring = false;
+                      _repeatType = null;
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  // Weekly
+                  _RepeatChip(
+                    label: 'Every week',
+                    icon: Icons.repeat,
+                    selected: _isRecurring && _repeatType == 'weekly',
+                    onTap: () => setState(() {
+                      _isRecurring = true;
+                      _repeatType = 'weekly';
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  // Monthly
+                  _RepeatChip(
+                    label: 'Every month',
+                    icon: Icons.calendar_month_outlined,
+                    selected: _isRecurring && _repeatType == 'monthly',
+                    onTap: () => setState(() {
+                      _isRecurring = true;
+                      _repeatType = 'monthly';
+                    }),
+                  ),
+                ],
+              ),
+
+              // Show selected date
+              if (_selectedDate != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.info.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.event_available,
+                        size: 16,
+                        color: AppColors.info,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Reminder set for: ${_formatDate(_selectedDate!)}',
+                        style: const TextStyle(
+                          color: AppColors.info,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+
+              // Save button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _selectedDate != null
+                        ? AppColors.info
+                        : t.bgSurface,
+                    foregroundColor: _selectedDate != null
+                        ? Colors.white
+                        : t.textMuted,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed: (_saving || _selectedDate == null) ? null : _save,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          _selectedDate == null
+                              ? 'Select a date above'
+                              : 'Save Reminder',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // MANUAL CARD
 class _ManualCard extends StatelessWidget {
   final ManualInventoryItem item;
@@ -1037,6 +1941,7 @@ class _ManualCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     final catColor = AppColors.categoryColor(item.category);
     final isLow = item.isLowStock;
     final isOut = item.isOutOfStock;
@@ -1048,7 +1953,7 @@ class _ManualCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isOut
@@ -1057,59 +1962,59 @@ class _ManualCard extends StatelessWidget {
               ? AppColors.warning.withValues(alpha: 0.4)
               : needsRecon
               ? AppColors.goldPrimary.withValues(alpha: 0.25)
-              : AppColors.borderSubtle,
+              : t.borderSubtle,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header row
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.goldDim,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: AppColors.goldPrimary.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.edit_note,
-                      size: 10,
-                      color: AppColors.goldPrimary,
-                    ),
-                    const SizedBox(width: 3),
-                    const Text(
-                      'Manual',
-                      style: TextStyle(
-                        color: AppColors.goldPrimary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   item.itemName,
-                  style: AppTextStyles.headingSmall,
+                  style: AppTextStyles.headingSmallOf(context),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              // Reminder badge — shows when an active reminder is set
+              if (item.hasActiveReminder) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.alarm, size: 10, color: AppColors.info),
+                      const SizedBox(width: 3),
+                      Text(
+                        item.reminderLabel ?? '',
+                        style: const TextStyle(
+                          color: AppColors.info,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: isOut
-                      ? AppColors.errorDim
+                      ? t.errorDim
                       : isLow
-                      ? AppColors.warningDim
-                      : AppColors.bgSurface,
+                      ? t.warningDim
+                      : t.bgSurface,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -1119,7 +2024,7 @@ class _ManualCard extends StatelessWidget {
                         ? AppColors.error
                         : isLow
                         ? AppColors.warning
-                        : AppColors.textPrimary,
+                        : t.textPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1127,13 +2032,15 @@ class _ManualCard extends StatelessWidget {
               ),
             ],
           ),
+
           const SizedBox(height: 10),
 
+          // Progress bar
           ClipRRect(
             borderRadius: BorderRadius.circular(3),
             child: LinearProgressIndicator(
               value: pct,
-              backgroundColor: AppColors.bgSurface,
+              backgroundColor: t.bgSurface,
               valueColor: AlwaysStoppedAnimation<Color>(
                 isOut
                     ? AppColors.error
@@ -1146,71 +2053,33 @@ class _ManualCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
+          // Meta row
           Row(
             children: [
               Text(
                 item.category,
-                style: AppTextStyles.bodySmall.copyWith(color: catColor),
+                style: AppTextStyles.bodySmallOf(
+                  context,
+                ).copyWith(color: catColor),
               ),
               const SizedBox(width: 6),
-              Text('·', style: AppTextStyles.bodySmall),
+              Text('·', style: AppTextStyles.bodySmallOf(context)),
               const SizedBox(width: 6),
               Text(
                 '${item.totalPurchased.toStringAsFixed(1)} ${item.unit} bought',
-                style: AppTextStyles.bodySmall,
+                style: AppTextStyles.bodySmallOf(context),
               ),
-              const Spacer(),
-              if (item.priceLabel != null)
-                Text(
-                  item.priceLabel!,
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.goldPrimary,
-                  ),
-                ),
-            ],
-          ),
 
-          // Threshold badge + total spent
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              // Threshold badge — shows what user set
-              if (item.threshold != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.warningDim,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    item.thresholdLabel ?? '',
-                    style: const TextStyle(
-                      color: AppColors.warning,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
               const Spacer(),
-              if (item.totalSpentLabel != null)
-                Text(
-                  item.totalSpentLabel!,
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              if (needsRecon) ...[
-                const SizedBox(width: 6),
+
+              if (needsRecon)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.goldDim,
+                    color: t.goldDim,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -1223,14 +2092,39 @@ class _ManualCard extends StatelessWidget {
                     ),
                   ),
                 ),
-              ],
+            ],
+          ),
+          const SizedBox(height: 4),
+
+          Row(
+            children: [
+              if (item.threshold != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: t.warningDim,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    item.thresholdLabel ?? '',
+                    style: const TextStyle(
+                      color: AppColors.warning,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
             ],
           ),
 
           const SizedBox(height: 10),
 
-          // Action chips row
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
             children: [
               _Chip(
                 Icons.edit_outlined,
@@ -1238,14 +2132,21 @@ class _ManualCard extends StatelessWidget {
                 null,
                 () => _openUpdateSheet(context),
               ),
-              const SizedBox(width: 8),
               _Chip(
                 Icons.warning_amber_outlined,
                 'Set Alert',
                 item.threshold != null ? AppColors.warning : null,
                 () => _openThresholdSheet(context),
               ),
-              const SizedBox(width: 8),
+              // REMINDER CHIP
+              _Chip(
+                item.hasActiveReminder
+                    ? Icons.alarm_on
+                    : Icons.alarm_add_outlined,
+                item.hasActiveReminder ? 'Edit Reminder' : 'Set Reminder',
+                item.hasActiveReminder ? AppColors.info : null,
+                () => _openReminderSheet(context),
+              ),
               _Chip(
                 Icons.delete_outline,
                 'Remove',
@@ -1259,45 +2160,47 @@ class _ManualCard extends StatelessWidget {
     );
   }
 
-  void _openUpdateSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _UpdateStockSheet(item: item, onUpdated: onUpdated),
-    );
-  }
+  void _openUpdateSheet(BuildContext context) => showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _UpdateStockSheet(item: item, onUpdated: onUpdated),
+  );
 
-  void _openThresholdSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _SetThresholdSheet(item: item, onUpdated: onUpdated),
-    );
-  }
+  void _openThresholdSheet(BuildContext context) => showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _SetThresholdSheet(item: item, onUpdated: onUpdated),
+  );
+
+  /// Opens the reminder bottom sheet — new
+  void _openReminderSheet(BuildContext context) => showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _SetReminderSheet(item: item, onUpdated: onUpdated),
+  );
 
   void _confirmDelete(BuildContext context) {
+    final t = AppTheme.of(context);
     showDialog(
       context: context,
       builder: (dCtx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: t.bgCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
+        title: Text(
           'Remove Item',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: AppTextStyles.headingSmallOf(context),
         ),
         content: Text(
           'Remove "${item.itemName}" from inventory?',
-          style: const TextStyle(color: Color(0xFF888888), fontSize: 14),
+          style: AppTextStyles.bodySmallOf(context),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dCtx),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Color(0xFF888888)),
-            ),
+            child: Text('Cancel', style: TextStyle(color: t.textSecondary)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
@@ -1321,18 +2224,19 @@ class _SensorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
     final catColor = AppColors.categoryColor(device.category);
     final isLow = device.isLowStock;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
+        color: t.bgCard,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isLow
               ? AppColors.warning.withValues(alpha: 0.4)
-              : AppColors.borderSubtle,
+              : t.borderSubtle,
         ),
       ),
       child: Column(
@@ -1343,9 +2247,7 @@ class _SensorCard extends StatelessWidget {
                 width: 8,
                 height: 8,
                 decoration: BoxDecoration(
-                  color: device.isOnline
-                      ? AppColors.success
-                      : AppColors.textMuted,
+                  color: device.isOnline ? AppColors.success : t.textMuted,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -1383,11 +2285,14 @@ class _SensorCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   device.name,
-                  style: AppTextStyles.headingSmall,
+                  style: AppTextStyles.headingSmallOf(context),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text(device.weightFormatted, style: AppTextStyles.weightSmall),
+              Text(
+                device.weightFormatted,
+                style: AppTextStyles.weightSmallOf(context),
+              ),
               if (isLow) ...[
                 const SizedBox(width: 6),
                 Container(
@@ -1396,10 +2301,10 @@ class _SensorCard extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.warningDim,
+                    color: t.warningDim,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: Text(
+                  child: const Text(
                     'LOW',
                     style: TextStyle(
                       color: AppColors.warning,
@@ -1416,7 +2321,7 @@ class _SensorCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(3),
             child: LinearProgressIndicator(
               value: device.stockPercentage,
-              backgroundColor: AppColors.bgSurface,
+              backgroundColor: t.bgSurface,
               valueColor: AlwaysStoppedAnimation<Color>(
                 isLow ? AppColors.warning : catColor,
               ),
@@ -1428,18 +2333,20 @@ class _SensorCard extends StatelessWidget {
             children: [
               Text(
                 device.category,
-                style: AppTextStyles.bodySmall.copyWith(color: catColor),
+                style: AppTextStyles.bodySmallOf(
+                  context,
+                ).copyWith(color: catColor),
               ),
               const SizedBox(width: 6),
-              Text('·', style: AppTextStyles.bodySmall),
+              Text('·', style: AppTextStyles.bodySmallOf(context)),
               const SizedBox(width: 6),
-              Text(device.location, style: AppTextStyles.bodySmall),
+              Text(device.location, style: AppTextStyles.bodySmallOf(context)),
               const Spacer(),
               Text(
                 'Min: ${device.threshold.toStringAsFixed(0)} ${device.unit}',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.goldPrimary,
-                ),
+                style: AppTextStyles.bodySmallOf(
+                  context,
+                ).copyWith(color: AppColors.goldPrimary),
               ),
             ],
           ),
@@ -1464,70 +2371,74 @@ class _SortFilterBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      GestureDetector(
-        onTap: onSort,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppColors.bgCard,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.borderSubtle),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.sort, size: 14, color: AppColors.textSecondary),
-              const SizedBox(width: 6),
-              Text('Sort: $sortBy', style: AppTextStyles.labelMedium),
-              const SizedBox(width: 4),
-              const Icon(
-                Icons.keyboard_arrow_down,
-                size: 14,
-                color: AppColors.textSecondary,
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(width: 8),
-      GestureDetector(
-        onTap: onToggleLow,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: showLowOnly ? AppColors.warningDim : AppColors.bgCard,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: showLowOnly ? AppColors.warning : AppColors.borderSubtle,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return Row(
+      children: [
+        GestureDetector(
+          onTap: onSort,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: t.bgCard,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: t.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.sort, size: 14, color: t.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  'Sort: $sortBy',
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: t.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 14,
+                  color: t.textSecondary,
+                ),
+              ],
             ),
           ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                size: 14,
-                color: showLowOnly
-                    ? AppColors.warning
-                    : AppColors.textSecondary,
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: onToggleLow,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: showLowOnly ? t.warningDim : t.bgCard,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: showLowOnly ? AppColors.warning : t.borderSubtle,
               ),
-              const SizedBox(width: 6),
-              Text(
-                'Low Stock',
-                style: AppTextStyles.labelMedium.copyWith(
-                  color: showLowOnly
-                      ? AppColors.warning
-                      : AppColors.textSecondary,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 14,
+                  color: showLowOnly ? AppColors.warning : t.textSecondary,
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Text(
+                  'Low Stock',
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: showLowOnly ? AppColors.warning : t.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-      const Spacer(),
-      Text('$count items', style: AppTextStyles.bodySmall),
-    ],
-  );
+        const Spacer(),
+        Text('$count items', style: AppTextStyles.bodySmallOf(context)),
+      ],
+    );
+  }
 }
 
 class _Chip extends StatelessWidget {
@@ -1536,9 +2447,11 @@ class _Chip extends StatelessWidget {
   final Color? c;
   final VoidCallback t;
   const _Chip(this.i, this.l, this.c, this.t);
+
   @override
   Widget build(BuildContext context) {
-    final col = c ?? AppColors.textSecondary;
+    final th = AppTheme.of(context);
+    final col = c ?? th.textSecondary;
     return GestureDetector(
       onTap: t,
       child: Container(
@@ -1568,111 +2481,134 @@ class _Chip extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
+class _RepeatChip extends StatelessWidget {
   final String label;
-  final Color color;
-  const _SectionHeader({
-    required this.icon,
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  const _RepeatChip({
     required this.label,
-    required this.color,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
   });
+
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Icon(icon, size: 14, color: color),
-      const SizedBox(width: 6),
-      Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.5,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.info.withValues(alpha: 0.15)
+              : t.bgSurface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppColors.info : t.borderSubtle,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 13,
+              color: selected ? AppColors.info : t.textSecondary,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.info : t.textSecondary,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
         ),
       ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: Container(height: 1, color: color.withValues(alpha: 0.2)),
-      ),
-    ],
-  );
+    );
+  }
 }
 
 class _CategoryFilter extends StatelessWidget {
   final String selected;
   final void Function(String) onChanged;
   const _CategoryFilter({required this.selected, required this.onChanged});
+
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 44,
-    child: ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      children: AppConstants.categories.map((cat) {
-        final isSelected = cat == selected;
-        return Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: GestureDetector(
-            onTap: () => onChanged(cat),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              decoration: BoxDecoration(
-                color: isSelected ? AppColors.goldPrimary : AppColors.bgCard,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isSelected
-                      ? AppColors.goldPrimary
-                      : AppColors.borderSubtle,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        children: AppConstants.categories.map((cat) {
+          final isSelected = cat == selected;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => onChanged(cat),
+              child: Container(
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: isSelected ? AppColors.goldPrimary : t.bgCard,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected ? AppColors.goldPrimary : t.borderSubtle,
+                  ),
                 ),
-              ),
-              child: Text(
-                cat,
-                style: AppTextStyles.labelMedium.copyWith(
-                  color: isSelected
-                      ? AppColors.textOnGold
-                      : AppColors.textSecondary,
+                child: Text(
+                  cat,
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: isSelected ? AppColors.textOnGold : t.textSecondary,
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-      }).toList(),
-    ),
-  );
+          );
+        }).toList(),
+      ),
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {
   final String category;
   final bool lowOnly;
   const _EmptyState({required this.category, required this.lowOnly});
+
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 60),
-      child: Column(
-        children: [
-          const Icon(
-            Icons.inventory_2_outlined,
-            color: AppColors.textMuted,
-            size: 48,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            lowOnly ? 'No low-stock items!' : 'No items in $category',
-            style: AppTextStyles.headingMedium.copyWith(
-              color: AppColors.textSecondary,
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 60),
+        child: Column(
+          children: [
+            Icon(Icons.inventory_2_outlined, color: t.textMuted, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              lowOnly ? 'No low-stock items!' : 'No items in $category',
+              style: AppTextStyles.headingMediumOf(
+                context,
+              ).copyWith(color: t.textSecondary),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            lowOnly
-                ? 'Your pantry is well stocked 🎉'
-                : 'Add devices or tap + Add Item',
-            style: AppTextStyles.bodySmall,
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              lowOnly
+                  ? 'Your pantry is well stocked 🎉'
+                  : 'Add devices or tap + Add Item',
+              style: AppTextStyles.bodySmallOf(context),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

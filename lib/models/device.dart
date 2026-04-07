@@ -12,6 +12,9 @@ class KitchenDevice {
   final double capacity;
   final bool isOnline;
   final DateTime lastUpdated;
+  final double tareWeight;
+  final int? linkedInventoryId;
+  final String? linkedInventoryName;
 
   int get battery => 100;
 
@@ -29,31 +32,34 @@ class KitchenDevice {
     this.capacity = 5000.0,
     required this.isOnline,
     DateTime? lastUpdated,
+    this.tareWeight = 0.0,
+    this.linkedInventoryId,
+    this.linkedInventoryName,
   }) : lastUpdated = lastUpdated ?? DateTime.now();
 
-  // Computed getters
+  // Net weight after subtracting container/jar weight
+  double get netWeight =>
+      (currentWeight - tareWeight).clamp(0.0, double.infinity);
 
-  /// "36.2 g"  or  "1.500 kg"
   String get weightFormatted {
-    if (currentWeight >= 1000) {
+    if (currentWeight >= 1000)
       return '${(currentWeight / 1000).toStringAsFixed(2)} kg';
-    }
     return '${currentWeight.toStringAsFixed(1)} $unit';
   }
 
-  /// True when weight is below low-stock threshold
-  bool get isLowStock => isOnline && currentWeight < threshold;
+  String get netWeightFormatted {
+    if (netWeight >= 1000) return '${(netWeight / 1000).toStringAsFixed(2)} kg';
+    return '${netWeight.toStringAsFixed(1)} $unit';
+  }
 
-  /// True when critically low (< 25 % of threshold)
+  bool get isLowStock => isOnline && currentWeight < threshold;
   bool get isCritical => isOnline && currentWeight < (threshold * 0.25);
 
-  /// 0.0 – 1.0 based on capacity
   double get stockPercentage {
     if (capacity <= 0) return 0.0;
     return (currentWeight / capacity).clamp(0.0, 1.0);
   }
 
-  /// Human-readable label
   String get stockLevel {
     if (!isOnline) return 'Offline';
     if (isCritical) return 'Critical';
@@ -62,7 +68,6 @@ class KitchenDevice {
     return 'Good';
   }
 
-  // copyWith
   KitchenDevice copyWith({
     String? id,
     String? espId,
@@ -77,6 +82,9 @@ class KitchenDevice {
     double? capacity,
     bool? isOnline,
     DateTime? lastUpdated,
+    double? tareWeight,
+    int? linkedInventoryId,
+    String? linkedInventoryName,
   }) => KitchenDevice(
     id: id ?? this.id,
     espId: espId ?? this.espId,
@@ -90,6 +98,10 @@ class KitchenDevice {
     threshold: threshold ?? this.threshold,
     capacity: capacity ?? this.capacity,
     isOnline: isOnline ?? this.isOnline,
+    lastUpdated: lastUpdated ?? this.lastUpdated,
+    tareWeight: tareWeight ?? this.tareWeight,
+    linkedInventoryId: linkedInventoryId ?? this.linkedInventoryId,
+    linkedInventoryName: linkedInventoryName ?? this.linkedInventoryName,
   );
 
   factory KitchenDevice.fromJson(Map<String, dynamic> j) => KitchenDevice(
@@ -105,6 +117,9 @@ class KitchenDevice {
     threshold: (j['threshold'] as num?)?.toDouble() ?? 200.0,
     capacity: (j['capacity'] as num?)?.toDouble() ?? 5000.0,
     isOnline: j['isOnline'] as bool? ?? false,
+    tareWeight: (j['tareWeight'] as num?)?.toDouble() ?? 0.0,
+    linkedInventoryId: j['linkedInventoryId'] as int?,
+    linkedInventoryName: j['linkedInventoryName'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -121,5 +136,8 @@ class KitchenDevice {
     'capacity': capacity,
     'isOnline': isOnline,
     'lastUpdated': lastUpdated.toIso8601String(),
+    'tareWeight': tareWeight,
+    'linkedInventoryId': linkedInventoryId,
+    'linkedInventoryName': linkedInventoryName,
   };
 }

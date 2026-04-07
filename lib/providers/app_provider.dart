@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:app/services/weighing_machine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:kitchen_bdy/services/weighing_machine.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import '../models/device.dart';
@@ -11,6 +11,7 @@ import '../models/alert.dart';
 import '../models/grocery_item.dart';
 import '../data/mock_data.dart';
 import '../services/ble_service.dart';
+import '../services/fcm_service.dart';
 
 const String _mqttBroker = '103.211.202.131';
 const int _mqttPort = 1883;
@@ -20,14 +21,20 @@ const String _mqttPassword = 'AcceptIt@123';
 class AppProvider extends ChangeNotifier {
   List<KitchenDevice> _devices = [];
   List<Recipe> _recipes = [];
-  List<AppAlert> _alerts = [];
+  List<AppAlert> _systemAlerts = [];
+  List<AppAlert> _customAlerts = [];
   List<GroceryItem> _groceryItems = [];
 
   List<KitchenDevice> get devices => _devices;
   List<Recipe> get recipes => _recipes;
-  List<AppAlert> get alerts => _alerts;
+  List<AppAlert> get alerts {
+    final all = [..._customAlerts, ..._systemAlerts];
+    all.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return all;
+  }
+
   List<GroceryItem> get groceryItems => _groceryItems;
-  int get unreadAlertCount => _alerts.where((a) => !a.isRead).length;
+  int get unreadAlertCount => alerts.where((a) => !a.isRead).length;
 
   bool _loadingDevices = false;
   bool get loadingDevices => _loadingDevices;
@@ -57,7 +64,6 @@ class AppProvider extends ChangeNotifier {
   bool get mqttConnected => _mqttConnected;
 
   // Tracks last MQTT message time per sensorId.
-  // Offline check runs every 30s — if no message for 60s → device goes offline.
   final Map<String, DateTime> _lastMqttTime = {};
   Timer? _offlineCheckTimer;
 
@@ -94,14 +100,10 @@ class AppProvider extends ChangeNotifier {
       _devices.where((d) => d.espId == espId).toList()
         ..sort((a, b) => (a.slot ?? 0).compareTo(b.slot ?? 0));
 
-  /// Same as devicesForEsp but forces isOnline=true on every sensor.
-  /// Used in DevicesScreen/EspDeviceDetailScreen — sensor registered = always shown online.
   List<KitchenDevice> devicesForEspDisplay(String espId) =>
       devicesForEsp(espId).map((d) => d.copyWith(isOnline: true)).toList();
 
   AppProvider() {
-    _recipes = kMockRecipesJson.map(Recipe.fromJson).toList();
-    _groceryItems = kMockGroceryJson.map(GroceryItem.fromJson).toList();
     _listenBleStatus();
     _init();
   }
@@ -110,11 +112,44 @@ class AppProvider extends ChangeNotifier {
     await _loadDevicesFromApi();
     await _connectMqtt();
     _startOfflineTimer();
+    await _initFcm();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
+  void clearDevices() {
+    _devices = [];
+    _lastMqttTime.clear();
+    _refreshAlerts();
+    notifyListeners();
+  }
+
+  Future<void> _initFcm() async {
+    await FcmService.instance.init(
+      onAlert: (alert) {
+        addAlert(alert);
+
+        // If a sensor just came back online, also flip its isOnline flag in UI
+        if (alert.type == AlertType.deviceOnline && alert.deviceId != null) {
+          final idx = _devices.indexWhere((d) => d.id == alert.deviceId);
+          if (idx != -1) {
+            _devices[idx] = _devices[idx].copyWith(isOnline: true);
+            notifyListeners();
+          }
+        }
+
+        // If a sensor went offline, also flip its isOnline flag in UI
+        if (alert.type == AlertType.deviceOffline && alert.deviceId != null) {
+          final idx = _devices.indexWhere((d) => d.id == alert.deviceId);
+          if (idx != -1) {
+            _devices[idx] = _devices[idx].copyWith(isOnline: false);
+            _refreshAlerts();
+            notifyListeners();
+          }
+        }
+      },
+    );
+  }
+
   // LOAD DEVICES FROM API
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _loadDevicesFromApi() async {
     _loadingDevices = true;
     notifyListeners();
@@ -130,38 +165,31 @@ class AppProvider extends ChangeNotifier {
       }
 
       if (machines.isNotEmpty) {
-        // Full replace — removes any stale BLE-MAC-based devices
-        _devices = machines.map((m) {
-          // isOnline = true ONLY if ESP32 sent data in the last 35 seconds.
-          // isActive in DB is irrelevant for online status — it just means
-          // the sensor is registered, not that it is currently sending data.
-          final lastSeen = m.lastSeen;
-          final recentlySeen =
-              lastSeen != null &&
-              DateTime.now().difference(lastSeen).inSeconds < 35;
-          return KitchenDevice(
-            id: m.sensorId,
-            espId: m.espId,
-            slot: m.slot,
-            name: m.name,
-            location: m.location,
-            category: m.category,
-            unit: m.unit,
-            currentWeight: m.currentWeight,
-            threshold: m.threshold,
-            capacity: m.capacity,
-            isOnline: recentlySeen, // ← ONLY recent MQTT data = online
-            lastUpdated: lastSeen ?? DateTime.now(),
-          );
-        }).toList();
+        _devices = machines
+            .map(
+              (m) => KitchenDevice(
+                id: m.sensorId,
+                espId: m.espId,
+                slot: m.slot,
+                name: m.name,
+                location: m.location,
+                category: m.category,
+                unit: m.unit,
+                currentWeight: m.currentWeight,
+                threshold: m.threshold,
+                capacity: m.capacity,
+                isOnline: true,
+                lastUpdated: DateTime.now(),
+                tareWeight: m.tareWeight,
+                linkedInventoryId: m.linkedInventoryId,
+                linkedInventoryName: m.linkedInventoryName,
+              ),
+            )
+            .toList();
 
-        debugPrint(
-          '[API] _devices set to: ${_devices.map((d) => d.id).toList()}',
-        );
-      } else {
-        debugPrint(
-          '[API] WARNING: 0 machines — check JWT token + userId in DB',
-        );
+        if (machines.isEmpty) {
+          debugPrint('[API] 0 machines for this user');
+        }
       }
     } catch (e) {
       debugPrint('[API] ERROR: $e');
@@ -174,35 +202,28 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> reloadDevices() => _loadDevicesFromApi();
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // OFFLINE DETECTION TIMER
-  // Runs every 30s. Any device with no MQTT message in 60s → isOnline = false.
-  // ─────────────────────────────────────────────────────────────────────────
-  // Runs every 20s. Any device with no MQTT message in 35s → offline.
-  // 35s gives one missed publish cycle (firmware publishes every ~5s on change,
-  // but we also want to catch a powered-off device quickly).
   void _startOfflineTimer() {
     _offlineCheckTimer?.cancel();
-    _offlineCheckTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      final now = DateTime.now();
-      bool changed = false;
-      for (int i = 0; i < _devices.length; i++) {
-        final lastMsg = _lastMqttTime[_devices[i].id];
-        final isStale =
-            lastMsg == null || now.difference(lastMsg).inSeconds > 35;
-        if (isStale && _devices[i].isOnline) {
-          _devices[i] = _devices[i].copyWith(isOnline: false);
-          changed = true;
-          debugPrint(
-            '[OFFLINE] ${_devices[i].name} → offline (${lastMsg == null ? "never seen" : "${now.difference(lastMsg).inSeconds}s ago"})',
-          );
-        }
-      }
-      if (changed) {
-        _refreshAlerts();
-        notifyListeners();
-      }
-    });
+    //  _offlineCheckTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    //    final now = DateTime.now();
+    //    bool changed = false;
+    //    for (int i = 0; i < _devices.length; i++) {
+    //      final lastMsg = _lastMqttTime[_devices[i].id];
+    //      final isStale =
+    //          lastMsg == null || now.difference(lastMsg).inSeconds > 35;
+    //      if (isStale && _devices[i].isOnline) {
+    //        _devices[i] = _devices[i].copyWith(isOnline: false);
+    //        changed = true;
+    //        debugPrint(
+    //          '[OFFLINE] ${_devices[i].name} → offline (${lastMsg == null ? "never seen" : "${now.difference(lastMsg).inSeconds}s ago"})',
+    //        );
+    //      }
+    //    }
+    //    if (changed) {
+    //      _refreshAlerts();
+    //      notifyListeners();
+    //    }
+    //  });
   }
 
   void _listenBleStatus() {
@@ -212,9 +233,7 @@ class AppProvider extends ChangeNotifier {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // MQTT
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _connectMqtt() async {
     if (_mqttConnected) return;
 
@@ -260,6 +279,7 @@ class AppProvider extends ChangeNotifier {
         final espId = (json['espId'] as String?) ?? '';
         final slot = (json['slot'] as int?) ?? 0;
         final weight = (json['weight'] as num?)?.toDouble() ?? 0.0;
+        if (weight < 0) continue;
         final online = (json['status'] as bool?) ?? true;
 
         if (espId.isEmpty || slot == 0) continue;
@@ -272,10 +292,10 @@ class AppProvider extends ChangeNotifier {
           '[MQTT]   current ids: ${_devices.map((d) => d.id).toList()}',
         );
 
-        // 1️⃣ Match by sensorId (normal case)
+        // Match by sensorId (normal case)
         int idx = _devices.indexWhere((d) => d.id == sensorId);
 
-        // 2️⃣ Match by espId + slot (fixes stale MAC-based entries from old flow)
+        // Match by espId + slot
         if (idx == -1) {
           idx = _devices.indexWhere((d) => d.espId == espId && d.slot == slot);
           if (idx != -1) {
@@ -284,7 +304,7 @@ class AppProvider extends ChangeNotifier {
           }
         }
 
-        // 3️⃣ Not found — reload from API then try BOTH match strategies again.
+        // Not found — reload from API then try BOTH match strategies again.
         //    This handles the case where API failed at startup, or sensorId
         //    format in DB differs slightly from the MQTT-derived one.
         if (idx == -1) {
@@ -294,7 +314,7 @@ class AppProvider extends ChangeNotifier {
           // 3a: exact id match after reload
           idx = _devices.indexWhere((d) => d.id == sensorId);
 
-          // 3b: espId + slot match after reload (catches format mismatches)
+          // espId + slot match after reload (catches format mismatches)
           if (idx == -1) {
             idx = _devices.indexWhere(
               (d) => d.espId == espId && d.slot == slot,
@@ -319,10 +339,6 @@ class AppProvider extends ChangeNotifier {
           notifyListeners();
           debugPrint('[MQTT] ✓ ${_devices[idx].name} → ${weight}g');
         } else {
-          // 4️⃣ Sensor is NOT registered to this user — silently ignore.
-          //    This is the correct behaviour: a scale broadcasting on MQTT
-          //    must not appear in another user's device list just because
-          //    they happen to be logged in at the same time.
           debugPrint('[MQTT] $sensorId not registered to this user — ignored');
         }
       } catch (e) {
@@ -331,9 +347,7 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // BLE SCAN
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> startScan() async {
     _isScanning = true;
     _scannedDevices = [];
@@ -363,9 +377,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // BLE CONNECT
-  // ─────────────────────────────────────────────────────────────────────────
   Future<bool> connectToDevice(String deviceId) async {
     final scanResults = await FlutterBluePlus.scanResults.first;
 
@@ -425,8 +437,6 @@ class AppProvider extends ChangeNotifier {
     return success;
   }
 
-  // addScannedDevice — no longer adds BLE MAC as device id.
-  // Just ensures MQTT is connected and reloads from API.
   void addScannedDevice({
     required String deviceId,
     required String mac,
@@ -438,6 +448,14 @@ class AppProvider extends ChangeNotifier {
       await _loadDevicesFromApi();
       _connectMqtt();
     });
+  }
+
+  Future<Map<String, dynamic>> registerDiscoveredSensorsWithError(
+    List<Map<String, dynamic>> sensors,
+  ) async {
+    final result = await WeighingMachineService.registerManyWithError(sensors);
+    if (result['ok'] == true) await _loadDevicesFromApi();
+    return result;
   }
 
   Future<bool> registerDiscoveredSensors(
@@ -497,18 +515,29 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  void _refreshAlerts() => _alerts = buildMockAlerts(_devices);
+  void _refreshAlerts() {
+    _systemAlerts = buildMockAlerts(_devices);
+  }
+
+  void addAlert(AppAlert alert) {
+    if (_customAlerts.any((a) => a.id == alert.id)) return;
+    _customAlerts.insert(0, alert);
+    notifyListeners();
+  }
 
   void markAlertRead(String alertId) {
-    final idx = _alerts.indexWhere((a) => a.id == alertId);
-    if (idx != -1) {
-      _alerts[idx].isRead = true;
-      notifyListeners();
+    for (final list in [_customAlerts, _systemAlerts]) {
+      final idx = list.indexWhere((a) => a.id == alertId);
+      if (idx != -1) {
+        list[idx].isRead = true;
+        notifyListeners();
+        return;
+      }
     }
   }
 
   void markAllAlertsRead() {
-    for (final a in _alerts) {
+    for (final a in alerts) {
       a.isRead = true;
     }
     notifyListeners();

@@ -1,5 +1,5 @@
+import 'package:app/services/auth_service.dart';
 import 'package:flutter/material.dart';
-import 'package:kitchen_bdy/services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -9,7 +9,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  // ── Theme ─────────────────────────────────────────────────────────────────
+  // Theme
   static const _bg = Color(0xFF0F0F0F);
   static const _surface = Color(0xFF1A1A1A);
   static const _gold = Color(0xFFD4A843);
@@ -139,10 +139,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     decoration: BoxDecoration(
       color: _surface,
       shape: BoxShape.circle,
-      border: Border.all(color: _gold.withOpacity(0.4), width: 2),
+      border: Border.all(color: _gold.withValues(alpha: 0.4), width: 2),
       boxShadow: [
         BoxShadow(
-          color: _gold.withOpacity(0.12),
+          color: _gold.withValues(alpha: 0.12),
           blurRadius: 20,
           spreadRadius: 2,
         ),
@@ -237,9 +237,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     decoration: BoxDecoration(
-      color: Colors.red.withOpacity(0.08),
+      color: Colors.red.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: Colors.red.withOpacity(0.3)),
+      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
     ),
     child: Row(
       children: [
@@ -259,9 +259,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     decoration: BoxDecoration(
-      color: Colors.green.withOpacity(0.08),
+      color: Colors.green.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: Colors.green.withOpacity(0.3)),
+      border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
     ),
     child: Row(
       children: [
@@ -285,7 +285,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       style: ElevatedButton.styleFrom(
         backgroundColor: _gold,
         foregroundColor: Colors.black,
-        disabledBackgroundColor: _goldDim.withOpacity(0.4),
+        disabledBackgroundColor: _goldDim.withValues(alpha: 0.4),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 0,
       ),
