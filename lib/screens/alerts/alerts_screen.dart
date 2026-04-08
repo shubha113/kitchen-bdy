@@ -194,6 +194,12 @@ class _AlertCard extends StatelessWidget {
         return (Icons.receipt_long_outlined, AppColors.goldPrimary, t.goldDim);
       case AlertType.receiptProcessed:
         return (Icons.check_circle_outline, AppColors.success, t.successDim);
+      case AlertType.mealReminder:
+        return (
+          Icons.restaurant_menu_rounded,
+          AppColors.goldPrimary,
+          t.goldDim,
+        );
       case AlertType.info:
         return (Icons.info_outline, AppColors.info, t.infoDim);
     }

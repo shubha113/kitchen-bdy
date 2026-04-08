@@ -55,7 +55,9 @@ class FcmService {
     // App opened from a terminated-state notification
     final initial = await _messaging.getInitialMessage();
     if (initial != null) {
-      debugPrint('[FCM] Launched from terminated: ${initial.notification?.title}');
+      debugPrint(
+        '[FCM] Launched from terminated: ${initial.notification?.title}',
+      );
       final alert = _toAlert(initial);
       if (alert != null) onAlert(alert);
     }
@@ -112,7 +114,8 @@ class FcmService {
     );
     await _localNotif
         .resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(channel);
   }
 
@@ -167,15 +170,26 @@ class FcmService {
   /// Maps the backend `type` string to a Flutter AlertType
   AlertType _parseType(String type) {
     switch (type) {
-      case 'low_stock':          return AlertType.lowStock;
-      case 'out_of_stock':       return AlertType.outOfStock;
-      case 'sensor_offline':     return AlertType.deviceOffline;
-      case 'sensor_online':      return AlertType.deviceOnline;
-      case 'sensor_placement':   return AlertType.sensorPlacement;
-      case 'reminder':           return AlertType.refillReminder;
-      case 'receipt_pending':    return AlertType.receiptPending;
-      case 'receipt_confirmed':  return AlertType.receiptProcessed;
-      default:                   return AlertType.info;
+      case 'low_stock':
+        return AlertType.lowStock;
+      case 'out_of_stock':
+        return AlertType.outOfStock;
+      case 'sensor_offline':
+        return AlertType.deviceOffline;
+      case 'sensor_online':
+        return AlertType.deviceOnline;
+      case 'sensor_placement':
+        return AlertType.sensorPlacement;
+      case 'reminder':
+        return AlertType.refillReminder;
+      case 'receipt_pending':
+        return AlertType.receiptPending;
+      case 'receipt_confirmed':
+        return AlertType.receiptProcessed;
+      case 'meal_reminder':
+        return AlertType.mealReminder;
+      default:
+        return AlertType.info;
     }
   }
 }

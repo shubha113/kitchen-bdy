@@ -8,6 +8,7 @@ enum AlertType {
   refillReminder,
   receiptPending,
   receiptProcessed,
+  mealReminder,
   info,
 }
 
@@ -54,6 +55,8 @@ class AppAlert {
         return 'RECEIPT';
       case AlertType.receiptProcessed:
         return 'RECEIPT';
+      case AlertType.mealReminder:
+        return 'MEAL REMINDER';
       case AlertType.info:
         return 'INFO';
     }
