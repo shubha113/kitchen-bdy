@@ -41,7 +41,7 @@ extension MealTypeExt on MealType {
   }
 
   static MealType fromString(String s) {
-    switch (s) {
+    switch (s.trim().toLowerCase()) {
       case 'breakfast':
         return MealType.breakfast;
       case 'lunch':
@@ -172,7 +172,7 @@ class ScheduledMeal {
   final int id;
   final int userId;
   final DateTime scheduledAt;
-  final MealType mealType;
+  final String mealType;
   final String cuisine;
   final bool healthy;
   final int servings;
@@ -195,8 +195,23 @@ class ScheduledMeal {
     required this.createdAt,
   });
 
+  /// Splits "breakfast & dinner" → "Breakfast + Dinner"
+  String get mealTypeLabel {
+    return mealType
+        .split(RegExp(r'[&,]+'))
+        .map((s) => MealTypeExt.fromString(s.trim()).label)
+        .where((s) => s.isNotEmpty)
+        .join(' + ');
+  }
+
+  /// Returns the emoji of the first meal type in the string
+  String get mealTypeEmoji {
+    final first = mealType.split(RegExp(r'[&,]+')).first.trim();
+    return MealTypeExt.fromString(first).emoji;
+  }
+
   String get displayTitle =>
-      eventLabel?.isNotEmpty == true ? eventLabel! : '${mealType.label} Event';
+      eventLabel?.isNotEmpty == true ? eventLabel! : '$mealTypeLabel Event';
 
   int get totalMissingCount =>
       recipes.fold(0, (sum, r) => sum + r.missingIngredients.length);
@@ -206,7 +221,7 @@ class ScheduledMeal {
       id: json['id'] ?? 0,
       userId: json['userId'] ?? 0,
       scheduledAt: DateTime.parse(json['scheduledAt']).toLocal(),
-      mealType: MealTypeExt.fromString(json['mealType'] ?? ''),
+      mealType: json['mealType'] ?? '',
       cuisine: json['cuisine'] ?? '',
       healthy: json['healthy'] ?? false,
       servings: json['servings'] ?? 1,

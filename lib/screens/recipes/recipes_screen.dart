@@ -581,7 +581,7 @@ class _MealCardState extends State<_MealCard> {
                     ),
                     child: Center(
                       child: Text(
-                        meal.mealType.emoji,
+                        meal.mealTypeEmoji,
                         style: const TextStyle(fontSize: 24),
                       ),
                     ),
@@ -624,7 +624,7 @@ class _MealCardState extends State<_MealCard> {
                             ),
                             const SizedBox(width: 6),
                             _Chip(
-                              meal.mealType.label,
+                              meal.mealTypeLabel,
                               t.textSecondary,
                               t.bgCardElevated,
                             ),
@@ -1596,7 +1596,7 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
     try {
       final saved = await ScheduledMealsService.create(
         scheduledAt: scheduledAt,
-        mealType: _primaryMealTypeValue,
+        mealType: _mealTypeString,
         cuisine: _cuisineString,
         healthy: _healthy,
         servings: _servings,
@@ -2261,15 +2261,16 @@ class _RecipePickerCardState extends State<_RecipePickerCard> {
 // Helpers
 
 Widget _goldDatePickerTheme(BuildContext context, Widget? child) {
+  final t = AppTheme.of(context);
   return Theme(
     data: Theme.of(context).copyWith(
-      colorScheme: const ColorScheme.dark(
+      colorScheme: Theme.of(context).colorScheme.copyWith(
         primary: AppColors.goldPrimary,
-        onPrimary: Colors.black,
-        surface: AppColors.bgCard,
-        onSurface: AppColors.textPrimary,
+        onPrimary: AppColors.textOnGold,
+        surface: t.bgCard,
+        onSurface: t.textPrimary,
       ),
-      dialogBackgroundColor: AppColors.bgSecondary,
+      dialogBackgroundColor: t.bgSecondary,
     ),
     child: child!,
   );

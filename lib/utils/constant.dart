@@ -1,5 +1,5 @@
 class AppConstants {
-  static const String baseUrl = 'http://192.168.0.109:3000';
+  static const String baseUrl = 'http://192.168.0.118:3000';
   // Production: 'http://103.211.202.131/apis'
   //http://192.168.0.109:3000
 

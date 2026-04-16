@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyBAt_0CSa-JTOR_kQLC2AXpxTonil6DUkE',
-    appId: '1:367497918343:android:5eecc5a7fd76f00f9d4522',
+    appId: '1:367497918343:android:85d57b7d1df132939d4522',
     messagingSenderId: '367497918343',
     projectId: 'kitchen-bdy',
     storageBucket: 'kitchen-bdy.firebasestorage.app',

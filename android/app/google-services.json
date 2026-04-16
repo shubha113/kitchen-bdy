@@ -7,12 +7,20 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:367497918343:android:5c7d3b1f744de2d79d4522",
+        "mobilesdk_app_id": "1:367497918343:android:5eecc5a7fd76f00f9d4522",
         "android_client_info": {
-          "package_name": "com.example.kitchen_bdy"
+          "package_name": "com.kitchen_bdy"
         }
       },
       "oauth_client": [
+        {
+          "client_id": "367497918343-c0rgtrpht3j8ugvi0o3bajdu2vusesap.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kitchen_bdy",
+            "certificate_hash": "ef8889ad217b2616cc1e9ced791f42c0f61571f3"
+          }
+        },
         {
           "client_id": "367497918343-s7rvies8hq4329hih2tjtqoe4408ecil.apps.googleusercontent.com",
           "client_type": 3
@@ -43,17 +51,17 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:367497918343:android:5eecc5a7fd76f00f9d4522",
+        "mobilesdk_app_id": "1:367497918343:android:85d57b7d1df132939d4522",
         "android_client_info": {
-          "package_name": "com.kitchen_bdy"
+          "package_name": "com.kitchenbdy"
         }
       },
       "oauth_client": [
         {
-          "client_id": "367497918343-c0rgtrpht3j8ugvi0o3bajdu2vusesap.apps.googleusercontent.com",
+          "client_id": "367497918343-0m458iq4pbilugggtq71p9gnmh1o1no5.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.kitchen_bdy",
+            "package_name": "com.kitchenbdy",
             "certificate_hash": "ef8889ad217b2616cc1e9ced791f42c0f61571f3"
           }
         },

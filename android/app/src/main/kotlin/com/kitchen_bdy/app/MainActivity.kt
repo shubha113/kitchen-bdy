@@ -1,4 +1,4 @@
-package com.kitchen_bdy
+package com.kitchenbdy
 
 import io.flutter.embedding.android.FlutterActivity
 
