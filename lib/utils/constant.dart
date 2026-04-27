@@ -1,7 +1,8 @@
 class AppConstants {
-  static const String baseUrl = 'http://192.168.0.118:3000';
+  static const String baseUrl = 'https://kbd.thecodersadda.com';
   // Production: 'http://103.211.202.131/apis'
   //http://192.168.0.109:3000
+  //last version version: 1.0.1+2, 1.0.2+3
 
   // Auth
   static const String loginEndpoint = '/auth/auth/login';

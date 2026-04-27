@@ -66,6 +66,14 @@
           }
         },
         {
+          "client_id": "367497918343-ur5b4hhleohc70sfb71es4sui5eh57mb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kitchenbdy",
+            "certificate_hash": "8e571e1bd3d63881934aa70573cbb0ad29d54e92"
+          }
+        },
+        {
           "client_id": "367497918343-s7rvies8hq4329hih2tjtqoe4408ecil.apps.googleusercontent.com",
           "client_type": 3
         }
